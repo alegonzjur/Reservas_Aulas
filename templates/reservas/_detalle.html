@@ -1,0 +1,83 @@
+{% if aviso %}
+  <p class="aviso aviso-{{ aviso.0 }}" role="status">{{ aviso.1 }}</p>
+{% endif %}
+
+<header class="ficha-cabecera">
+  <h2>{{ reserva.aula }}</h2>
+  <span class="estado estado-{{ reserva.estado }}">{{ reserva.get_estado_display }}</span>
+</header>
+
+<dl class="datos">
+  <dt>Día</dt>
+  <dd>{{ reserva.fecha|date:"l d/m/Y" }}</dd>
+  <dt>Horario</dt>
+  <dd>{{ reserva.hora_inicio|time:"H:i" }} a {{ reserva.hora_fin|time:"H:i" }} ({{ reserva.duracion_texto }})</dd>
+  <dt>Profesor/a</dt>
+  <dd>{{ reserva.profesor }}</dd>
+  <dt>Notas</dt>
+  <dd>{% if reserva.notas %}{{ reserva.notas|linebreaksbr }}{% else %}<span class="tenue">Sin notas</span>{% endif %}</dd>
+  <dt>Petición</dt>
+  <dd>{{ reserva.creada_en|date:"d/m/Y H:i" }}, desde el usuario {{ reserva.creada_por.first_name|default:reserva.creada_por.username }}</dd>
+  {% if reserva.gestionada_por %}
+    <dt>{% if reserva.estado == "aceptada" %}Aceptada por{% else %}Rechazada por{% endif %}</dt>
+    <dd>{{ reserva.gestionada_por.first_name|default:reserva.gestionada_por.username }}, {{ reserva.gestionada_en|date:"d/m/Y H:i" }}</dd>
+  {% endif %}
+  {% if reserva.motivo_rechazo %}
+    <dt>Motivo</dt>
+    <dd>{{ reserva.motivo_rechazo }}</dd>
+  {% endif %}
+</dl>
+
+{% if conflictos %}
+  <div class="aviso aviso-error">
+    <p><strong>No se puede aceptar todavía.</strong> Esa aula ya tiene aceptada en la misma franja:</p>
+    <ul>
+      {% for c in conflictos %}
+        <li>{{ c.hora_inicio|time:"H:i" }} a {{ c.hora_fin|time:"H:i" }}, {{ c.profesor }}
+          (<a href="{% url 'reserva_detalle' c.pk %}" hx-get="{% url 'reserva_detalle' c.pk %}" hx-target="#detalle">ver</a>)</li>
+      {% endfor %}
+    </ul>
+    <p>Rechaza o cancela esa reserva primero, o rechaza esta.</p>
+  </div>
+{% endif %}
+
+<div class="acciones">
+  {% if reserva.estado != "aceptada" %}
+    <form method="post" action="{% url 'reserva_accion' reserva.pk %}" hx-post="{% url 'reserva_accion' reserva.pk %}" hx-target="#detalle">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="aceptar">
+      <button type="submit" class="boton"{% if conflictos %} disabled{% endif %}>Aceptar</button>
+    </form>
+  {% endif %}
+
+  {% if reserva.estado == "rechazada" %}
+    <form method="post" action="{% url 'reserva_accion' reserva.pk %}" hx-post="{% url 'reserva_accion' reserva.pk %}" hx-target="#detalle">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="reabrir">
+      <button type="submit" class="boton boton-secundario">Volver a pendiente</button>
+    </form>
+  {% else %}
+    <form class="form-rechazo" method="post" action="{% url 'reserva_accion' reserva.pk %}" hx-post="{% url 'reserva_accion' reserva.pk %}" hx-target="#detalle"
+          {% if reserva.estado == "aceptada" %}hx-confirm="Esta reserva ya está aceptada. ¿Seguro que quieres cancelarla?"{% endif %}>
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="rechazar">
+      <label for="motivo-{{ reserva.pk }}">Motivo (opcional)</label>
+      <input type="text" name="motivo" id="motivo-{{ reserva.pk }}" maxlength="250" autocomplete="off">
+      <button type="submit" class="boton boton-peligro">{% if reserva.estado == "aceptada" %}Cancelar reserva{% else %}Rechazar{% endif %}</button>
+    </form>
+  {% endif %}
+</div>
+
+<section class="historial-bloque">
+  <h3>Historial</h3>
+  <ol class="historial">
+    {% for e in eventos %}
+      <li>
+        <time datetime="{{ e.fecha|date:'c' }}">{{ e.fecha|date:"d/m/Y H:i" }}</time>
+        <span>{{ e.get_tipo_display }} por {{ e.usuario.first_name|default:e.usuario.username }}{% if e.detalle %}: {{ e.detalle }}{% endif %}</span>
+      </li>
+    {% empty %}
+      <li class="tenue">Sin movimientos registrados.</li>
+    {% endfor %}
+  </ol>
+</section>

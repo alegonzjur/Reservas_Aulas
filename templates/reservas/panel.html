@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block titulo %}Calendario · Reservas de aulas{% endblock %}
+{% block clase_main %}contenido contenido-ancho{% endblock %}
+
+{% block contenido %}
+<div class="panel">
+  <section id="panel-contenido" class="panel-calendario" aria-label="Calendario semanal">
+    {% include "reservas/_panel_contenido.html" %}
+  </section>
+
+  <div class="panel-lateral">
+    {# El detalle va arriba: al pulsar una reserva o "Aceptar" el resultado se ve sin desplazarse. #}
+    <aside id="detalle" class="tarjeta detalle" aria-live="polite" aria-label="Detalle de la reserva">
+      <p class="vacio">Pulsa una reserva para ver su detalle y gestionarla.</p>
+    </aside>
+    <section id="pendientes" class="tarjeta pendientes" aria-label="Peticiones pendientes">
+      {% include "reservas/_pendientes.html" %}
+    </section>
+  </div>
+</div>
+{% endblock %}

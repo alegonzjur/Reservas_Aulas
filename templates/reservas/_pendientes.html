@@ -1,0 +1,34 @@
+<h2>Pendientes de revisar <span class="contador">{{ total_pendientes }}</span></h2>
+
+{% if pendientes %}
+  <ul class="lista-pendientes">
+    {% for p in pendientes %}
+      <li class="pendiente{% if p.caducada %} pendiente-caducada{% endif %}">
+        <button type="button" class="pendiente-info" hx-get="{% url 'reserva_detalle' p.pk %}" hx-target="#detalle">
+          <strong>{{ p.aula }}</strong>
+          <span>{{ p.fecha|date:"D d/m/Y" }}, {{ p.hora_inicio|time:"H:i" }} a {{ p.hora_fin|time:"H:i" }}</span>
+          <span>{{ p.profesor }}</span>
+          {% if p.conflicto or p.competidoras or p.caducada %}
+            <span class="etiquetas">
+              {% if p.conflicto %}<span class="etiqueta etiqueta-alerta">Aula ya ocupada</span>{% endif %}
+              {% if p.competidoras %}<span class="etiqueta">{{ p.competidoras }} más piden esta franja</span>{% endif %}
+              {% if p.caducada %}<span class="etiqueta">Fecha pasada</span>{% endif %}
+            </span>
+          {% endif %}
+        </button>
+        {% if not p.conflicto and not p.caducada %}
+          <form method="post" action="{% url 'reserva_accion' p.pk %}" hx-post="{% url 'reserva_accion' p.pk %}" hx-target="#detalle">
+            {% csrf_token %}
+            <input type="hidden" name="accion" value="aceptar">
+            <button type="submit" class="boton boton-pequeno">Aceptar</button>
+          </form>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  {% if total_pendientes > pendientes|length %}
+    <p class="nota">Se muestran las primeras {{ pendientes|length }}. <a href="{% url 'listado' %}?estado=pendiente">Ver todas las pendientes</a></p>
+  {% endif %}
+{% else %}
+  <p class="vacio">No hay peticiones pendientes.</p>
+{% endif %}

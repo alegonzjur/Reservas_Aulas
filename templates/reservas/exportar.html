@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titulo %}Exportar datos · Reservas de aulas{% endblock %}
+{% block clase_main %}contenido contenido-medio{% endblock %}
+
+{% block contenido %}
+<section class="tarjeta">
+  <h1>Exportar datos</h1>
+  <p class="intro">
+    Descarga las reservas para migrarlas a otro sistema o analizarlas. Sin filtros se exporta todo el histórico.
+    Los filtros afectan a las reservas y a su auditoría; las aulas se exportan siempre completas.
+  </p>
+
+  <form method="get" class="filtros">
+    {% if form.non_field_errors %}
+      <div class="aviso aviso-error" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+    {% endif %}
+    {% include "reservas/_campo.html" with campo=form.estado %}
+    {% include "reservas/_campo.html" with campo=form.aula %}
+    {% include "reservas/_campo.html" with campo=form.desde %}
+    {% include "reservas/_campo.html" with campo=form.hasta %}
+    {% include "reservas/_campo.html" with campo=form.q %}
+    {% include "reservas/_campo.html" with campo=form.delimitador %}
+
+    <div class="exportar-botones">
+      <button type="submit" name="formato" value="xlsx" class="boton">Descargar Excel (reservas, aulas y auditoría)</button>
+      <button type="submit" name="formato" value="reservas_csv" class="boton boton-secundario">Reservas en CSV</button>
+      <button type="submit" name="formato" value="aulas_csv" class="boton boton-secundario">Aulas en CSV</button>
+      <button type="submit" name="formato" value="auditoria_csv" class="boton boton-secundario">Auditoría en CSV</button>
+    </div>
+  </form>
+
+  <details class="formato">
+    <summary>Cómo vienen los datos</summary>
+    <ul>
+      <li>Fechas como AAAA-MM-DD y horas como HH:MM, para que no dependan del idioma del programa que las lea.</li>
+      <li>El estado usa códigos fijos: <code>pendiente</code>, <code>aceptada</code>, <code>rechazada</code>.</li>
+      <li>El CSV va en UTF-8 con marca BOM, así Excel respeta tildes y eñes.</li>
+      <li>Por seguridad, un texto que empiece por <code>=</code>, <code>+</code>, <code>-</code> o <code>@</code> se exporta en el CSV con un apóstrofo delante, para que Excel no lo ejecute como fórmula. En el fichero de Excel se guarda tal cual, como texto.</li>
+    </ul>
+  </details>
+</section>
+{% endblock %}

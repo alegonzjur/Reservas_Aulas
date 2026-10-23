@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block titulo %}Reserva {{ reserva.pk }} · Reservas de aulas{% endblock %}
+{% block clase_main %}contenido contenido-estrecho{% endblock %}
+
+{% block contenido %}
+<p><a href="{% url 'listado' %}">Volver a las reservas</a></p>
+{# Mismo fragmento que el panel lateral; las acciones se refrescan dentro de #detalle. #}
+<section id="detalle" class="tarjeta detalle detalle-pagina">
+  {% include "reservas/_detalle.html" %}
+</section>
+{% endblock %}

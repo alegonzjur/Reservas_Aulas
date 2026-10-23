@@ -1,0 +1,85 @@
+{% comment %}
+  Refresco: cuando una acción cambia datos, el servidor emite "reservasActualizadas" y este
+  elemento (que lleva la semana y el aula actuales) recarga el calendario y los pendientes.
+{% endcomment %}
+<div hidden hx-get="{% url 'panel_contenido' %}?{{ querystring }}&amp;refresco=1"
+     hx-trigger="reservasActualizadas from:body" hx-target="#panel-contenido" hx-swap="innerHTML"></div>
+
+<div class="barra-semana">
+  <div class="navegacion-semana" role="group" aria-label="Cambiar de semana">
+    <a class="boton boton-secundario" href="{% url 'panel' %}?semana={{ anterior|date:'Y-m-d' }}{% if aula_id %}&amp;aula={{ aula_id }}{% endif %}"
+       hx-get="{% url 'panel_contenido' %}?semana={{ anterior|date:'Y-m-d' }}{% if aula_id %}&amp;aula={{ aula_id }}{% endif %}"
+       hx-target="#panel-contenido">Semana anterior</a>
+    <a class="boton boton-secundario" href="{% url 'panel' %}{% if aula_id %}?aula={{ aula_id }}{% endif %}"
+       hx-get="{% url 'panel_contenido' %}{% if aula_id %}?aula={{ aula_id }}{% endif %}"
+       hx-target="#panel-contenido"{% if es_semana_actual %} aria-current="date"{% endif %}>Esta semana</a>
+    <a class="boton boton-secundario" href="{% url 'panel' %}?semana={{ siguiente|date:'Y-m-d' }}{% if aula_id %}&amp;aula={{ aula_id }}{% endif %}"
+       hx-get="{% url 'panel_contenido' %}?semana={{ siguiente|date:'Y-m-d' }}{% if aula_id %}&amp;aula={{ aula_id }}{% endif %}"
+       hx-target="#panel-contenido">Semana siguiente</a>
+  </div>
+
+  <h1 class="rango-semana">{{ rango_texto }}</h1>
+
+  <form class="filtro-aula" method="get" action="{% url 'panel' %}"
+        hx-get="{% url 'panel_contenido' %}" hx-trigger="change" hx-target="#panel-contenido">
+    <input type="hidden" name="semana" value="{{ lunes|date:'Y-m-d' }}">
+    <label for="filtro-aula">Aula</label>
+    <select name="aula" id="filtro-aula">
+      <option value="">Todas</option>
+      {% for aula in aulas %}
+        <option value="{{ aula.pk }}"{% if aula.pk == aula_id %} selected{% endif %}>{{ aula.nombre }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit" class="boton boton-secundario">Filtrar</button></noscript>
+  </form>
+</div>
+
+<ul class="leyenda" aria-label="Leyenda">
+  <li><span class="muestra muestra-aceptada"></span>Aceptada</li>
+  <li><span class="muestra muestra-pendiente"></span>Pendiente de revisar</li>
+</ul>
+
+<div class="semana-scroll">
+  <div class="semana" style="--horas: {{ n_horas }}; --columnas: {{ columnas_css }}; --ancho-minimo: {{ ancho_minimo }}px">
+    <div class="semana-cabecera">
+      <div class="esquina"></div>
+      {% for dia in dias %}
+        <div class="dia-titulo{% if dia.es_hoy %} es-hoy{% endif %}">
+          <span class="dia-nombre">{{ dia.nombre }}</span>
+          <span class="dia-fecha">{{ dia.fecha|date:"d/m/Y" }}</span>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="semana-cuerpo">
+      <div class="eje-horas" aria-hidden="true">
+        {% for h in horas %}<span style="--i: {{ h.i }}">{{ h.texto }}</span>{% endfor %}
+      </div>
+      {% for dia in dias %}
+        <div class="dia-columna{% if dia.es_hoy %} es-hoy{% endif %}" role="group"
+             aria-label="{{ dia.nombre }} {{ dia.fecha|date:'d/m/Y' }}">
+          {% for b in dia.bloques %}
+            <button type="button" class="bloque bloque-{{ b.reserva.estado }}" style="{{ b.estilo }}"
+                    hx-get="{% url 'reserva_detalle' b.reserva.pk %}" hx-target="#detalle"
+                    title="{{ b.reserva.aula }}, {{ b.reserva.hora_inicio|time:'H:i' }} a {{ b.reserva.hora_fin|time:'H:i' }}, {{ b.reserva.profesor }} ({{ b.reserva.get_estado_display|lower }})">
+              <span class="bloque-hora">{{ b.reserva.hora_inicio|time:"G:i" }}–{{ b.reserva.hora_fin|time:"G:i" }}</span>
+              <span class="bloque-aula">{{ b.reserva.aula }}</span>
+              <span class="bloque-profesor">{{ b.reserva.profesor }}</span>
+            </button>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% if not hay_reservas %}
+  <p class="vacio">No hay reservas esta semana{% if aula_id %} en el aula seleccionada{% endif %}.</p>
+{% endif %}
+
+{% if oob %}
+  {# Sustituye la lista de pendientes de la columna lateral (swap "fuera de banda"). #}
+  <section id="pendientes" class="tarjeta pendientes" aria-label="Peticiones pendientes" hx-swap-oob="true">
+    {% include "reservas/_pendientes.html" %}
+  </section>
+{% endif %}

@@ -1,0 +1,10 @@
+name: reservas-aulas
+channels:
+  - defaults
+dependencies:
+  - python=3.13
+  - pip
+  - pip:
+      # Las librerías del proyecto se instalan con pip desde requirements.txt
+      # (una sola fuente de verdad, igual que en producción).
+      - -r requirements.txt

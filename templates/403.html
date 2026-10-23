@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block titulo %}Sin permiso · Reservas de aulas{% endblock %}
+{% block clase_main %}contenido contenido-estrecho{% endblock %}
+
+{% block contenido %}
+<section class="tarjeta">
+  <h1>No tienes permiso para ver esta página</h1>
+  <p>Tu usuario no puede acceder a esta sección. Si crees que es un error, avisa a informática.</p>
+  <p><a class="boton boton-secundario" href="{% url 'inicio' %}">Volver al inicio</a></p>
+</section>
+{% endblock %}

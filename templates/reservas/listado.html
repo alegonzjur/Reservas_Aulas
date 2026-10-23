@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block titulo %}Reservas · Reservas de aulas{% endblock %}
+{% block clase_main %}contenido contenido-ancho{% endblock %}
+
+{% block contenido %}
+<section class="tarjeta">
+  <h1>Reservas</h1>
+
+  <form method="get" class="filtros">
+    {% if form.non_field_errors %}
+      <div class="aviso aviso-error" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+    {% endif %}
+    {% include "reservas/_campo.html" with campo=form.estado %}
+    {% include "reservas/_campo.html" with campo=form.aula %}
+    {% include "reservas/_campo.html" with campo=form.desde %}
+    {% include "reservas/_campo.html" with campo=form.hasta %}
+    {% include "reservas/_campo.html" with campo=form.q %}
+    <div class="filtros-acciones">
+      <button type="submit" class="boton">Filtrar</button>
+      <a class="boton boton-secundario" href="{% url 'listado' %}">Quitar filtros</a>
+    </div>
+  </form>
+
+  {% if pagina.object_list %}
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th scope="col">Día</th>
+            <th scope="col">Horario</th>
+            <th scope="col">Aula</th>
+            <th scope="col">Profesor/a</th>
+            <th scope="col">Estado</th>
+            <th scope="col">Gestionada</th>
+            <th scope="col"><span class="solo-lectores">Detalle</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in pagina %}
+            <tr>
+              <td>{{ r.fecha|date:"D d/m/Y" }}</td>
+              <td>{{ r.hora_inicio|time:"H:i" }} a {{ r.hora_fin|time:"H:i" }}</td>
+              <td>{{ r.aula }}</td>
+              <td>{{ r.profesor }}</td>
+              <td><span class="estado estado-{{ r.estado }}">{{ r.get_estado_display }}</span></td>
+              <td>{% if r.gestionada_por %}{{ r.gestionada_por.first_name|default:r.gestionada_por.username }}, {{ r.gestionada_en|date:"d/m/Y H:i" }}{% else %}<span class="tenue">Sin gestionar</span>{% endif %}</td>
+              <td><a href="{% url 'reserva_detalle' r.pk %}">Abrir<span class="solo-lectores"> la reserva {{ r.pk }}</span></a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if pagina.paginator.num_pages > 1 %}
+      <nav class="paginacion" aria-label="Páginas">
+        {% if pagina.has_previous %}<a class="boton boton-secundario" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
+        <span>Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
+        {% if pagina.has_next %}<a class="boton boton-secundario" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}pagina={{ pagina.next_page_number }}">Siguiente</a>{% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <p class="vacio">No hay reservas que coincidan con estos filtros.</p>
+  {% endif %}
+</section>
+{% endblock %}

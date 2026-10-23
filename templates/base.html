@@ -1,0 +1,48 @@
+{% load static %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Reservas de aulas{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'vendor/tom-select.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
+  <script src="{% static 'vendor/tom-select.complete.min.js' %}" defer></script>
+  <script src="{% static 'js/app.js' %}" defer></script>
+</head>
+{# El token CSRF viaja en una cabecera en todas las peticiones de HTMX. #}
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+  <header class="barra">
+    <a class="marca" href="{% url 'inicio' %}">Reservas de aulas</a>
+    {% if user.is_authenticated %}
+      <nav class="menu" aria-label="Principal">
+        {% if es_admin %}
+          {% with actual=request.resolver_match.url_name %}
+          <a href="{% url 'panel' %}"{% if actual == 'panel' %} aria-current="page"{% endif %}>Calendario</a>
+          <a href="{% url 'listado' %}"{% if actual == 'listado' or actual == 'reserva_detalle' %} aria-current="page"{% endif %}>Reservas</a>
+          <a href="{% url 'reservar' %}"{% if actual == 'reservar' %} aria-current="page"{% endif %}>Nueva reserva</a>
+          <a href="{% url 'exportar' %}"{% if actual == 'exportar' %} aria-current="page"{% endif %}>Exportar datos</a>
+          {% endwith %}
+          {% if user.is_staff %}<a href="{% url 'admin:index' %}">Aulas y ajustes</a>{% endif %}
+        {% endif %}
+      </nav>
+      <form class="sesion" method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <span class="sesion-usuario">{{ user.first_name|default:user.username }}</span>
+        <button type="submit" class="boton-texto">Cerrar sesión</button>
+      </form>
+    {% endif %}
+  </header>
+
+  <main class="{% block clase_main %}contenido{% endblock %}">
+    {% if messages %}
+      <div class="mensajes" role="status">
+        {% for mensaje in messages %}
+          <p class="aviso aviso-{{ mensaje.tags }}">{{ mensaje }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% block contenido %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{% if estado == "ocupada" %}
+  <p class="disp disp-ocupada" role="alert">
+    <strong>Aula ocupada.</strong>
+    Ya hay una reserva aceptada de
+    {% for c in conflictos %}{{ c.hora_inicio|time:"H:i" }} a {{ c.hora_fin|time:"H:i" }}{% if not forloop.last %}, {% endif %}{% endfor %}
+    en esa franja. Elige otra hora u otra aula.
+  </p>
+{% elif estado == "libre" %}
+  <p class="disp disp-libre"><strong>Franja libre.</strong> Todavía no hay reservas aceptadas en ese horario.</p>
+{% endif %}

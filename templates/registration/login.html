@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block titulo %}Iniciar sesión · Reservas de aulas{% endblock %}
+{% block clase_main %}contenido contenido-estrecho{% endblock %}
+
+{% block contenido %}
+<section class="tarjeta acceso">
+  <h1>Iniciar sesión</h1>
+  <p class="intro">Entra para pedir un aula o gestionar las peticiones.</p>
+
+  <form method="post" class="formulario">
+    {% csrf_token %}
+    {% if form.errors %}
+      <p class="aviso aviso-error" role="alert">El usuario o la contraseña no son correctos. Revísalos e inténtalo de nuevo.</p>
+    {% endif %}
+    <div class="campo">
+      <label for="{{ form.username.id_for_label }}">Usuario</label>
+      <input type="text" name="username" id="{{ form.username.id_for_label }}" autocomplete="username" autocapitalize="none" autofocus required>
+    </div>
+    <div class="campo">
+      <label for="{{ form.password.id_for_label }}">Contraseña</label>
+      <input type="password" name="password" id="{{ form.password.id_for_label }}" autocomplete="current-password" required>
+    </div>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="boton">Entrar</button>
+  </form>
+  <p class="nota">Si no tienes acceso a la red del centro, llama a mantenimiento y reservarán por ti.</p>
+</section>
+{% endblock %}

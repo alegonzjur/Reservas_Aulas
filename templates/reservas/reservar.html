@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block titulo %}{% if es_admin %}Nueva reserva{% else %}Pedir un aula{% endif %} · Reservas de aulas{% endblock %}
+{% block clase_main %}contenido contenido-estrecho{% endblock %}
+
+{% block contenido %}
+<section class="tarjeta">
+  <h1>{% if es_admin %}Nueva reserva{% else %}Pedir un aula{% endif %}</h1>
+  <p class="intro">
+    {% if es_admin %}
+      Crea una reserva por encargo de quien la pide. Por defecto queda aceptada.
+    {% else %}
+      Rellena el formulario. Mantenimiento revisará la petición y, si no puede atenderla, se pondrá en contacto contigo.
+    {% endif %}
+  </p>
+
+  <form method="post" class="formulario">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="aviso aviso-error" role="alert">
+        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    {# Al cambiar aula, día u horas, se consulta en vivo si la franja está libre. #}
+    <div hx-get="{% url 'disponibilidad' %}" hx-trigger="change" hx-include="closest form"
+         hx-target="#disponibilidad" hx-swap="innerHTML">
+      {% include "reservas/_campo.html" with campo=form.aula %}
+      <div class="fila-horario">
+        {% include "reservas/_campo.html" with campo=form.fecha %}
+        {% include "reservas/_campo.html" with campo=form.hora_inicio %}
+        {% include "reservas/_campo.html" with campo=form.hora_fin %}
+      </div>
+      <div id="disponibilidad" class="disponibilidad" aria-live="polite"></div>
+    </div>
+
+    {% include "reservas/_campo.html" with campo=form.profesor %}
+    {% include "reservas/_campo.html" with campo=form.notas %}
+    {% if es_admin %}{% include "reservas/_campo.html" with campo=form.aceptar_directamente %}{% endif %}
+
+    <button type="submit" class="boton">{% if es_admin %}Guardar reserva{% else %}Enviar petición{% endif %}</button>
+  </form>
+</section>
+{% endblock %}
