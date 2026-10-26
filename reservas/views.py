@@ -1,13 +1,15 @@
 import logging
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.formats import date_format
 from django.views.decorators.http import require_GET, require_POST
 
 from . import exports
@@ -15,7 +17,14 @@ from .calendario import construir_semana, lunes_de, lunes_por_defecto, pendiente
 from .forms import DisponibilidadForm, FiltroExportacionForm, FiltroReservasForm, PeticionForm
 from .models import Aula, Reserva
 from .permissions import es_admin, solo_admin, solo_con_rol
-from .services import ConflictoReserva, cambiar_estado, crear_peticion
+from .services import (
+    ConflictoReserva,
+    cambiar_estado,
+    cambiar_estado_serie,
+    crear_peticion,
+    crear_serie,
+    fechas_de_serie,
+)
 
 logger = logging.getLogger(__name__)
 Estado = Reserva.Estado
@@ -43,19 +52,31 @@ def reservar(request):
         if form.is_valid():
             aceptar = admin and form.cleaned_data.get("aceptar_directamente", False)
             try:
-                reserva = crear_peticion(
-                    form.instance,
-                    request.user,
-                    aceptar=aceptar,
-                    materiales=form.cleaned_data["materiales"],
-                )
+                if form.fechas_serie:
+                    resultado = crear_serie(
+                        form.instance,
+                        request.user,
+                        hasta=form.cleaned_data["repetir_hasta"],
+                        aceptar=aceptar,
+                        materiales=form.cleaned_data["materiales"],
+                    )
+                else:
+                    resultado = None
+                    reserva = crear_peticion(
+                        form.instance,
+                        request.user,
+                        aceptar=aceptar,
+                        materiales=form.cleaned_data["materiales"],
+                    )
             except ConflictoReserva:
                 form.add_error(
                     None,
                     "Otra reserva acaba de ocupar esa franja. Elige otra hora u otra aula.",
                 )
             else:
-                if aceptar:
+                if resultado is not None:
+                    _avisar_serie_creada(request, resultado, aceptar)
+                elif aceptar:
                     messages.success(request, f"Reserva creada y aceptada: {reserva}.")
                 else:
                     messages.success(
@@ -67,6 +88,31 @@ def reservar(request):
     else:
         form = PeticionForm(es_admin=admin)
     return render(request, "reservas/reservar.html", {"form": form})
+
+
+def _avisar_serie_creada(request, resultado, aceptada: bool):
+    creadas = resultado.creadas
+    primera, ultima = creadas[0], creadas[-1]
+    dia = date_format(primera.fecha, "l")
+    resumen = (
+        f"{len(creadas)} fechas ({dia}, {primera.hora_inicio:%H:%M} a {primera.hora_fin:%H:%M}), "
+        f"del {primera.fecha:%d/%m/%Y} al {ultima.fecha:%d/%m/%Y}, {primera.aula}"
+    )
+    if aceptada:
+        messages.success(request, f"Serie creada y aceptada: {resumen}.")
+    else:
+        messages.success(
+            request,
+            f"Petición enviada: {resumen}. Mantenimiento la revisará y, si hay algún "
+            "problema, se pondrá en contacto contigo.",
+        )
+    if resultado.omitidas:
+        fechas = ", ".join(date_format(f, "j/n") for f in resultado.omitidas)
+        messages.warning(
+            request,
+            f"No se han incluido {len(resultado.omitidas)} fechas porque el aula ya tiene una "
+            f"reserva aceptada en esa franja: {fechas}.",
+        )
 
 
 @solo_con_rol
@@ -81,7 +127,28 @@ def disponibilidad(request):
             Reserva.aceptadas_solapadas(d["aula"], d["fecha"], d["hora_inicio"], d["hora_fin"])
         )
         contexto = {"estado": "ocupada" if conflictos else "libre", "conflictos": conflictos}
+        hasta = _fecha_o_none(request.GET.get("repetir_hasta"))
+        if hasta and hasta >= d["fecha"] + timedelta(days=7):
+            fechas = fechas_de_serie(d["fecha"], hasta)[: settings.MAX_REPETICIONES_SERIE + 1]
+            if len(fechas) <= settings.MAX_REPETICIONES_SERIE:
+                ocupadas = [
+                    f for f in fechas
+                    if Reserva.aceptadas_solapadas(d["aula"], f, d["hora_inicio"], d["hora_fin"]).exists()
+                ]
+                contexto = {
+                    "estado": "serie",
+                    "total": len(fechas),
+                    "ocupadas": ocupadas,
+                    "libres": len(fechas) - len(ocupadas),
+                }
     return render(request, "reservas/_disponibilidad.html", contexto)
+
+
+def _fecha_o_none(texto):
+    try:
+        return date.fromisoformat(texto or "")
+    except ValueError:
+        return None
 
 
 # --------------------------------------------------------------------------- Panel
@@ -157,12 +224,22 @@ def _contexto_detalle(reserva, aviso=None):
         "conflictos": conflictos,
         "eventos": reserva.eventos.select_related("usuario"),
         "aviso": aviso,
+        "serie": _resumen_serie(reserva),
     }
+
+
+def _resumen_serie(reserva):
+    """Fechas hermanas y recuentos por estado, o None si no es parte de una serie."""
+    if reserva.serie_id is None:
+        return None
+    fechas = list(reserva.serie.reservas.order_by("fecha", "hora_inicio", "id"))
+    por_estado = {e: sum(1 for r in fechas if r.estado == e) for e in Estado.values}
+    return {"fechas": fechas, "total": len(fechas), **por_estado}
 
 
 def _reserva_completa(pk):
     return get_object_or_404(
-        Reserva.objects.select_related("aula", "curso", "creada_por", "gestionada_por")
+        Reserva.objects.select_related("aula", "curso", "creada_por", "gestionada_por", "serie")
         .prefetch_related("materiales"),
         pk=pk,
     )
@@ -230,6 +307,48 @@ def reserva_accion(request, pk):
             request, "reservas/_detalle.html", _contexto_detalle(_reserva_completa(pk), aviso)
         )
         # Avisa al panel para que se recargue (calendario y lista de pendientes).
+        respuesta["HX-Trigger"] = "reservasActualizadas"
+        return respuesta
+
+    nivel = {"ok": messages.SUCCESS, "info": messages.INFO, "error": messages.ERROR}[aviso[0]]
+    messages.add_message(request, nivel, aviso[1])
+    return redirect("reserva_detalle", pk=pk)
+
+
+@solo_admin
+@require_POST
+def reserva_serie_accion(request, pk):
+    """Acepta o rechaza las fechas pendientes de la serie a la que pertenece la reserva `pk`."""
+    destino = {"aceptar": Estado.ACEPTADA, "rechazar": Estado.RECHAZADA}.get(request.POST.get("accion"))
+    if destino is None:
+        return HttpResponseBadRequest("Acción no válida.")
+    reserva = get_object_or_404(Reserva.objects.select_related("serie"), pk=pk)
+    if reserva.serie is None:
+        return HttpResponseBadRequest("Esta reserva no pertenece a ninguna serie.")
+
+    resultado = cambiar_estado_serie(reserva.serie, destino, request.user, request.POST.get("motivo", ""))
+    hechas = len(resultado.cambiadas)
+    verbo = "aceptadas" if destino == Estado.ACEPTADA else "rechazadas"
+    if not hechas and not resultado.en_conflicto:
+        aviso = ("info", "La serie no tenía fechas pendientes.")
+    else:
+        texto = f"{hechas} fechas {verbo}."
+        nivel = "ok"
+        if destino == Estado.RECHAZADA and hechas:
+            texto += " Recuerda avisar al profesor."
+        if resultado.en_conflicto:
+            fechas = ", ".join(date_format(r.fecha, "j/n") for r in resultado.en_conflicto)
+            texto += (
+                f" {len(resultado.en_conflicto)} fechas siguen pendientes porque el aula ya tiene una "
+                f"reserva aceptada en esa franja: {fechas}. Decídelas una a una."
+            )
+            nivel = "error" if not hechas else "info"
+        aviso = (nivel, texto)
+
+    if _es_htmx(request):
+        respuesta = render(
+            request, "reservas/_detalle.html", _contexto_detalle(_reserva_completa(pk), aviso)
+        )
         respuesta["HX-Trigger"] = "reservasActualizadas"
         return respuesta
 

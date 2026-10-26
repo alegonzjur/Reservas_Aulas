@@ -22,7 +22,7 @@ from .models import Aula, Curso, EventoReserva, Material, Reserva
 CABECERA_RESERVAS = [
     "id", "aula", "fecha", "hora_inicio", "hora_fin", "titulo", "curso", "profesor",
     "materiales", "notas", "estado",
-    "creada_en", "creada_por", "gestionada_en", "gestionada_por", "motivo_rechazo",
+    "creada_en", "creada_por", "gestionada_en", "gestionada_por", "motivo_rechazo", "serie",
 ]
 CABECERA_AULAS = ["id", "nombre", "ubicacion", "capacidad", "activa"]
 CABECERA_CURSOS = ["id", "nombre", "activo"]
@@ -58,7 +58,7 @@ def filas_reservas(queryset):
             _local_naive(r.creada_en), r.creada_por.get_username(),
             _local_naive(r.gestionada_en),
             r.gestionada_por.get_username() if r.gestionada_por else None,
-            r.motivo_rechazo,
+            r.motivo_rechazo, r.serie_id,
         ]
 
 

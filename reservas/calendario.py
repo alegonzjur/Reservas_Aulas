@@ -192,17 +192,39 @@ def construir_semana(lunes: date, aula_id: int | None = None, solo_aceptadas: bo
 def pendientes_para_revisar(limite: int = 50):
     """Peticiones pendientes (de todas las fechas) con avisos de conflicto.
 
-    Cada elemento recibe tres atributos:
-      conflicto    -> solapa con una reserva ya ACEPTADA (no se puede aceptar tal cual)
+    Una serie semanal ocupa un solo elemento de la lista (su primera fecha pendiente).
+    Cada elemento recibe estos atributos:
+      conflicto    -> solapa con una reserva ya ACEPTADA (no se puede aceptar tal cual).
+                      En una serie, solo si TODAS sus fechas pendientes están ocupadas.
       competidoras -> nº de otras peticiones PENDIENTES que piden la misma franja
       caducada     -> su fecha ya pasó sin que nadie la gestionara
-    Devuelve (lista, total_pendientes).
+      n_serie      -> 0 si es una petición suelta; si no, nº de fechas pendientes de su serie
+      ultima_fecha -> última fecha pendiente de la serie
+      n_ocupadas   -> fechas de la serie que chocan con una reserva ya aceptada
+    Devuelve (lista, total_de_elementos).
     """
-    base = Reserva.objects.filter(estado=Reserva.Estado.PENDIENTE)
-    total = base.count()
-    pendientes = list(base.select_related("aula").order_by("fecha", "hora_inicio", "id")[:limite])
+    todas = list(
+        Reserva.objects.filter(estado=Reserva.Estado.PENDIENTE)
+        .select_related("aula")
+        .order_by("fecha", "hora_inicio", "id")
+    )
+    unidades: list[Reserva] = []
+    series: dict[int, list[Reserva]] = {}
+    for p in todas:
+        if p.serie_id is None:
+            unidades.append(p)
+        elif p.serie_id in series:
+            series[p.serie_id].append(p)
+        else:
+            series[p.serie_id] = [p]
+            unidades.append(p)  # representa a toda la serie
+    total = len(unidades)
+    pendientes = unidades[:limite]
 
-    fechas = {p.fecha for p in pendientes}
+    # Fechas que hay que contrastar con las reservas aceptadas: las de lo que se muestra.
+    fechas = set()
+    for p in pendientes:
+        fechas.update(r.fecha for r in series.get(p.serie_id, [p]))
     aceptadas: dict[tuple, list[Reserva]] = defaultdict(list)
     for a in Reserva.objects.filter(estado=Reserva.Estado.ACEPTADA, fecha__in=fechas):
         aceptadas[(a.aula_id, a.fecha)].append(a)
@@ -213,7 +235,17 @@ def pendientes_para_revisar(limite: int = 50):
     hoy = timezone.localdate()
     for p in pendientes:
         clave = (p.aula_id, p.fecha)
-        p.conflicto = any(_se_solapan(p, a) for a in aceptadas.get(clave, []))
+        miembros = series.get(p.serie_id, [])
+        p.n_serie = len(miembros)
+        p.ultima_fecha = miembros[-1].fecha if miembros else p.fecha
+        p.n_ocupadas = sum(
+            1 for r in miembros
+            if any(_se_solapan(r, a) for a in aceptadas.get((r.aula_id, r.fecha), []))
+        )
+        if miembros:
+            p.conflicto = p.n_ocupadas == len(miembros)
+        else:
+            p.conflicto = any(_se_solapan(p, a) for a in aceptadas.get(clave, []))
         p.competidoras = sum(
             1 for q in pendientes_por_hueco[clave] if q.pk != p.pk and _se_solapan(p, q)
         )

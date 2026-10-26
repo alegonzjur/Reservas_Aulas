@@ -8,3 +8,14 @@
 {% elif estado == "libre" %}
   <p class="disp disp-libre"><strong>Franja libre.</strong> Todavía no hay reservas aceptadas en ese horario.</p>
 {% endif %}
+{% if estado == "serie" %}
+  {% if ocupadas %}
+    <p class="disp disp-ocupada" role="alert">
+      <strong>{{ ocupadas|length }} de {{ total }} fechas con el aula ocupada:</strong>
+      {% for f in ocupadas %}{{ f|date:"j/n" }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+      {% if libres %}Se pedirán solo las otras {{ libres }}.{% else %}Elige otra hora u otra aula.{% endif %}
+    </p>
+  {% else %}
+    <p class="disp disp-libre"><strong>Las {{ total }} fechas están libres.</strong> No hay reservas aceptadas en ese horario.</p>
+  {% endif %}
+{% endif %}

@@ -62,6 +62,26 @@ class Material(models.Model):
         return self.nombre
 
 
+class SerieReserva(models.Model):
+    """Agrupa las reservas creadas de una vez para repetirse cada semana (p. ej. todos los lunes).
+
+    No guarda reglas de repetición: cada fecha es una `Reserva` normal, con su propio estado,
+    su restricción anti-solape y su historial. La serie solo permite gestionarlas juntas.
+    """
+
+    creada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    creada_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "serie de reservas"
+        verbose_name_plural = "series de reservas"
+
+    def __str__(self):
+        return f"Serie {self.pk}"
+
+
 class Reserva(models.Model):
     """Una petición de reserva. Solo ocupa el aula cuando está ACEPTADA."""
 
@@ -84,6 +104,10 @@ class Reserva(models.Model):
         Curso, on_delete=models.PROTECT, null=True, blank=True, related_name="reservas"
     )
     materiales = models.ManyToManyField(Material, blank=True, related_name="reservas")
+    # Si se pidió repetida cada semana, las reservas hermanas comparten serie.
+    serie = models.ForeignKey(
+        SerieReserva, on_delete=models.PROTECT, null=True, blank=True, related_name="reservas"
+    )
     notas = models.TextField(blank=True)
     estado = models.CharField(
         max_length=10, choices=Estado.choices, default=Estado.PENDIENTE, db_index=True

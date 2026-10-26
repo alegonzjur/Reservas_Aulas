@@ -152,10 +152,12 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "re
 HORA_APERTURA = time(8, 0)
 HORA_CIERRE = time(21, 0)
 PASO_MINUTOS = 5
+# Máximo de fechas de una serie semanal (≈ un curso académico entero).
+MAX_REPETICIONES_SERIE = 40
 
 # Aviso por correo cuando entra una petición pendiente.
 RESERVAS_EMAIL_DESTINO = env_lista("RESERVAS_EMAIL_DESTINO")
-SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000").rstrip("/")
+SITE_URL = os.environ.get("SITE_URL", "http://localhost:8002").rstrip("/")
 
 # --------------------------------------------------------------------------- Logs
 # Todo va a la salida de error estándar. Como servicio de Windows, NSSM la redirige a un

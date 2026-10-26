@@ -27,9 +27,16 @@ from .calendario import (
     pendientes_para_revisar, repartir_en_carriles, texto_rango,
 )
 from .forms import PeticionForm
-from .models import Aula, Curso, EventoReserva, Material, Reserva
+from .models import Aula, Curso, EventoReserva, Material, Reserva, SerieReserva
 from .permissions import GRUPO_ADMIN, GRUPO_PROFESORADO
-from .services import ConflictoReserva, cambiar_estado, crear_peticion
+from .services import (
+    ConflictoReserva,
+    cambiar_estado,
+    cambiar_estado_serie,
+    crear_peticion,
+    crear_serie,
+    fechas_de_serie,
+)
 
 User = get_user_model()
 Estado = Reserva.Estado
@@ -1259,3 +1266,654 @@ class AdminTests(BaseTest):
         self.assertFalse(ma.has_add_permission(peticion))
         self.assertFalse(ma.has_change_permission(peticion))
         self.assertFalse(ma.has_delete_permission(peticion))
+
+
+# ----------------------------------------------------------------------- Despliegue
+import logging  # noqa: E402
+import tempfile  # noqa: E402
+from pathlib import Path  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import run  # noqa: E402  (ejecutor del servidor, en la raíz del proyecto)
+
+
+class EjecutorArgumentosTests(TestCase):
+    def test_valores_por_defecto(self):
+        a = run.leer_argumentos([], entorno={})
+        self.assertEqual((a.host, a.port, a.threads, a.check), ("0.0.0.0", 8000, 8, False))
+
+    def test_variables_de_entorno(self):
+        a = run.leer_argumentos(
+            [], entorno={"RESERVAS_HOST": "10.0.0.5", "RESERVAS_PORT": "8080", "RESERVAS_THREADS": "4"}
+        )
+        self.assertEqual((a.host, a.port, a.threads), ("10.0.0.5", 8080, 4))
+
+    def test_la_linea_de_comandos_manda_sobre_el_entorno(self):
+        a = run.leer_argumentos(["--port", "9000", "--check"], entorno={"RESERVAS_PORT": "8080"})
+        self.assertEqual(a.port, 9000)
+        self.assertTrue(a.check)
+
+    def test_numero_no_valido_en_el_entorno(self):
+        with self.assertRaisesMessage(run.ErrorDeArranque, "RESERVAS_PORT"):
+            run.leer_argumentos([], entorno={"RESERVAS_PORT": "abc"})
+
+    def test_rangos(self):
+        for argv in (["--port", "0"], ["--port", "70000"], ["--threads", "0"], ["--threads", "65"]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit) as cm:
+                with mock.patch("sys.stderr", new=StringIO()):
+                    run.leer_argumentos(argv, entorno={})
+            self.assertEqual(cm.exception.code, 2)
+
+
+class EjecutorComprobacionesTests(TestCase):
+    def ajustes(self, raiz, **extra):
+        origen = Path(raiz) / "static"
+        origen.mkdir(exist_ok=True)
+        base = dict(
+            DEBUG=False,
+            ALLOWED_HOSTS=["reservas.centro.local"],
+            SITE_URL="http://reservas.centro.local:8000",
+            EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
+            RESERVAS_EMAIL_DESTINO="mantenimiento@centro.local",
+            STATIC_ROOT=str(Path(raiz) / "staticfiles"),
+            STATICFILES_DIRS=[str(origen)],
+        )
+        base.update(extra)
+        return SimpleNamespace(**base)
+
+    def test_estaticos_ausentes_impiden_arrancar(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesMessage(run.ErrorDeArranque, "collectstatic"):
+                run.comprobar_estaticos(self.ajustes(d))
+
+    def test_estaticos_presentes(self):
+        with tempfile.TemporaryDirectory() as d:
+            css = Path(d) / "staticfiles" / "css"
+            css.mkdir(parents=True)
+            (css / "app.css").write_text("x")
+            run.comprobar_estaticos(self.ajustes(d))
+
+    def test_estaticos_no_se_exigen_con_debug(self):
+        with tempfile.TemporaryDirectory() as d:
+            run.comprobar_estaticos(self.ajustes(d, DEBUG=True))
+
+    def test_configuracion_correcta_sin_avisos(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(run.recopilar_avisos(self.ajustes(d), "0.0.0.0"), [])
+
+    def test_avisos_de_configuracion_de_desarrollo(self):
+        with tempfile.TemporaryDirectory() as d:
+            ajustes = self.ajustes(
+                d,
+                DEBUG=True,
+                ALLOWED_HOSTS=["localhost", "127.0.0.1"],
+                RESERVAS_EMAIL_DESTINO="",
+            )
+            texto = "\n".join(run.recopilar_avisos(ajustes, "0.0.0.0"))
+        self.assertIn("DJANGO_DEBUG", texto)
+        self.assertIn("ALLOWED_HOSTS", texto)
+        self.assertIn("RESERVAS_EMAIL_DESTINO", texto)
+
+    def test_avisos_de_correo_y_url_solo_sin_debug(self):
+        with tempfile.TemporaryDirectory() as d:
+            ajustes = self.ajustes(
+                d,
+                SITE_URL="http://localhost:8000",
+                EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
+            )
+            texto = "\n".join(run.recopilar_avisos(ajustes, "0.0.0.0"))
+        self.assertIn("SITE_URL", texto)
+        self.assertIn("EMAIL_BACKEND", texto)
+
+    def test_aviso_de_estaticos_desactualizados(self):
+        with tempfile.TemporaryDirectory() as d:
+            ajustes = self.ajustes(d)
+            recogidos = Path(ajustes.STATIC_ROOT)
+            recogidos.mkdir()
+            (recogidos / "a.css").write_text("viejo")
+            nuevo = Path(ajustes.STATICFILES_DIRS[0]) / "a.css"
+            nuevo.write_text("nuevo")
+            os.utime(nuevo, (os.path.getmtime(recogidos / "a.css") + 60,) * 2)
+            texto = "\n".join(run.recopilar_avisos(ajustes, "0.0.0.0"))
+        self.assertIn("collectstatic", texto)
+
+    def test_base_de_datos_alcanzable(self):
+        self.assertTrue(run.comprobar_base_de_datos())
+
+    def test_base_de_datos_caida(self):
+        from django.db import connection
+        from django.db.utils import OperationalError
+
+        with mock.patch.object(connection, "ensure_connection", side_effect=OperationalError("sin conexión")):
+            with self.assertRaisesMessage(run.ErrorDeArranque, "PostgreSQL"):
+                run.comprobar_base_de_datos()
+
+
+class PlantillasDeErrorTests(TestCase):
+    def test_404_personalizada(self):
+        r = Client().get("/no/existe/")
+        self.assertEqual(r.status_code, 404)
+        self.assertContains(r, "No encontramos esa página", status_code=404)
+
+    def test_500_es_autonoma(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string("500.html")
+        self.assertIn("Ha ocurrido un error en el servidor", html)
+        self.assertNotIn("{%", html)
+        self.assertNotIn("/static/", html)  # no depende de estáticos
+
+
+class LoggingTests(TestCase):
+    def test_los_errores_de_django_llegan_a_un_manejador(self):
+        # Con DEBUG=False un 500 solo se enviaría a ADMINS (vacío); debe quedar también en el log.
+        self.assertTrue(logging.getLogger("django").handlers)
+        self.assertTrue(logging.getLogger("reservas").handlers)
+
+
+class CatalogoExportarImportarTests(TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.ruta = str(Path(self.dir.name) / "catalogo.json")
+
+    def exportar(self):
+        call_command("exportar_catalogo", self.ruta, stdout=StringIO())
+
+    def importar(self, *extra):
+        out = StringIO()
+        call_command("importar_catalogo", self.ruta, *extra, stdout=out)
+        return out.getvalue()
+
+    def test_ida_y_vuelta_sin_chocar_con_los_materiales_iniciales(self):
+        Aula.objects.create(nombre="Laboratorio 1", ubicacion="Planta 2", capacidad=30)
+        Aula.objects.create(nombre="Aula vieja", activa=False)
+        Curso.objects.create(nombre="1ºA")
+        Material.objects.create(nombre="Camillas", orden=5)
+        self.exportar()
+        # «Servidor»: base vacía, salvo los materiales que crea la migración 0004.
+        Aula.objects.all().delete()
+        Curso.objects.all().delete()
+        Material.objects.filter(nombre="Camillas").delete()
+        salida = self.importar()
+        self.assertIn("Catálogo importado", salida)
+        lab = Aula.objects.get(nombre="Laboratorio 1")
+        self.assertEqual((lab.ubicacion, lab.capacidad, lab.activa), ("Planta 2", 30, True))
+        self.assertFalse(Aula.objects.get(nombre="Aula vieja").activa)
+        self.assertTrue(Curso.objects.filter(nombre="1ºA").exists())
+        self.assertEqual(Material.objects.get(nombre="Camillas").orden, 5)
+        self.assertEqual(Material.objects.filter(nombre="Maniquíes").count(), 1)
+
+    def test_es_idempotente_y_actualiza(self):
+        Aula.objects.create(nombre="A1", capacidad=10)
+        self.exportar()
+        self.assertIn("0 nuevos, 0 actualizados, 1 sin cambios", self.importar())
+        Aula.objects.filter(nombre="A1").update(capacidad=99)
+        self.assertIn("0 nuevos, 1 actualizados", self.importar())
+        self.assertEqual(Aula.objects.get(nombre="A1").capacidad, 10)
+        self.assertEqual(Aula.objects.count(), 1)
+
+    def test_no_borra_lo_que_no_esta_en_el_fichero(self):
+        self.exportar()
+        Aula.objects.create(nombre="Solo en el servidor")
+        self.importar()
+        self.assertTrue(Aula.objects.filter(nombre="Solo en el servidor").exists())
+
+    def test_simulacro_no_guarda(self):
+        Aula.objects.create(nombre="A1")
+        self.exportar()
+        Aula.objects.all().delete()
+        salida = self.importar("--simulacro")
+        self.assertIn("1 nuevos", salida)
+        self.assertIn("Simulacro", salida)
+        self.assertEqual(Aula.objects.count(), 0)
+
+    def test_fichero_invalido_no_guarda_nada(self):
+        Path(self.ruta).write_text(
+            '{"version": 1, "aulas": [{"nombre": "Buena"}, {"nombre": "Mala", "capacidad": -3}]}',
+            encoding="utf-8",
+        )
+        with self.assertRaises(CommandError):
+            self.importar()
+        self.assertFalse(Aula.objects.filter(nombre="Buena").exists())
+
+    def test_ficheros_que_no_son_un_catalogo(self):
+        for contenido in ("no es json", '{"version": 99}', "[]"):
+            Path(self.ruta).write_text(contenido, encoding="utf-8")
+            with self.subTest(contenido=contenido), self.assertRaises(CommandError):
+                self.importar()
+        with self.assertRaises(CommandError):
+            call_command("importar_catalogo", str(Path(self.dir.name) / "no_existe.json"))
+
+
+# ================================================================================ Series semanales
+S1, S2, S3, S4 = (LUNES + timedelta(days=7 * i) for i in range(4))  # cuatro lunes seguidos
+
+
+class SerieFormularioTests(BaseTest):
+    def form(self, **cambios):
+        return PeticionForm(self.datos_form(**cambios))
+
+    def test_fechas_de_serie_incluye_ambos_extremos_y_salta_de_siete_en_siete(self):
+        self.assertEqual(fechas_de_serie(S1, S4), [S1, S2, S3, S4])
+        self.assertEqual(fechas_de_serie(S1, S4 - timedelta(days=1)), [S1, S2, S3])
+        self.assertEqual(fechas_de_serie(S1, S1), [S1])
+
+    def test_sin_repetir_es_una_reserva_normal(self):
+        f = self.form()
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertIsNone(f.fechas_serie)
+
+    def test_repetir_hasta_genera_las_fechas(self):
+        f = self.form(repetir_hasta=S4.isoformat())
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertEqual(f.fechas_serie, [S1, S2, S3, S4])
+        self.assertEqual(f.fechas_ocupadas, [])
+
+    def test_hasta_una_fecha_que_no_es_lunes_llega_al_ultimo_lunes_anterior(self):
+        f = self.form(repetir_hasta=(S3 + timedelta(days=4)).isoformat())  # viernes
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertEqual(f.fechas_serie, [S1, S2, S3])
+
+    def test_la_fecha_final_debe_dejar_al_menos_una_semana(self):
+        for hasta in (S1, S1 + timedelta(days=6)):
+            with self.subTest(hasta=hasta):
+                f = self.form(repetir_hasta=hasta.isoformat())
+                self.assertFalse(f.is_valid())
+                self.assertIn("repetir_hasta", f.errors)
+
+    def test_limite_de_fechas_por_serie(self):
+        con_limite = LUNES + timedelta(days=7 * 39)  # 40 fechas: permitido
+        self.assertTrue(self.form(repetir_hasta=con_limite.isoformat()).is_valid())
+        f = self.form(repetir_hasta=(con_limite + timedelta(days=7)).isoformat())  # 41
+        self.assertFalse(f.is_valid())
+        self.assertIn("máximo 40", f.errors["repetir_hasta"][0])
+
+    def test_las_fechas_ocupadas_no_impiden_pedir_las_demas(self):
+        self.crear(dia=S2, estado=Estado.ACEPTADA)
+        f = self.form(repetir_hasta=S4.isoformat())
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertEqual(f.fechas_ocupadas, [S2])
+
+    def test_si_todas_las_fechas_estan_ocupadas_se_bloquea(self):
+        for dia in (S1, S2):
+            self.crear(dia=dia, estado=Estado.ACEPTADA)
+        f = self.form(repetir_hasta=S2.isoformat())
+        self.assertFalse(f.is_valid())
+        self.assertIn("todas las fechas", f.non_field_errors()[0])
+
+    def test_una_pendiente_no_cuenta_como_ocupada(self):
+        self.crear(dia=S2)  # pendiente
+        self.assertEqual(self.form(repetir_hasta=S4.isoformat()).fechas_ocupadas, [])
+
+
+class SerieServiciosTests(BaseTest):
+    def plantilla(self, **extra):
+        return Reserva(
+            aula=self.a1, fecha=S1, hora_inicio=t("10:00"), hora_fin=t("12:20"),
+            profesor="Ana López", titulo="Anatomía I", curso=self.curso, notas="Traer batas", **extra,
+        )
+
+    def test_crea_una_reserva_por_semana_con_los_mismos_datos(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            res = crear_serie(self.plantilla(), self.profesor, hasta=S4, materiales=[self.mat_maniquies])
+        reservas = list(res.serie.reservas.order_by("fecha"))
+        self.assertEqual([r.fecha for r in reservas], [S1, S2, S3, S4])
+        for r in reservas:
+            self.assertEqual(
+                (r.estado, r.aula, r.hora_inicio, r.hora_fin, r.titulo, r.curso, r.notas, r.creada_por),
+                (Estado.PENDIENTE, self.a1, t("10:00"), t("12:20"), "Anatomía I", self.curso,
+                 "Traer batas", self.profesor),
+            )
+            self.assertEqual(list(r.materiales.all()), [self.mat_maniquies])
+        self.assertEqual(res.omitidas, [])
+
+    def test_un_unico_correo_por_serie(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            crear_serie(self.plantilla(), self.profesor, hasta=S4)
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertIn("4 fechas", correo.subject)
+        self.assertIn("10:00 - 12:20", correo.body)
+        self.assertIn(f"{S1:%d/%m/%Y}", correo.body)
+        self.assertIn(f"{S4:%d/%m/%Y}", correo.body)
+        self.assertIn("Anatomía I", correo.body)
+        self.assertNotIn("Anatomía I", correo.subject)
+
+    def test_cada_fecha_tiene_su_historial(self):
+        res = crear_serie(self.plantilla(), self.profesor, hasta=S2)
+        for r in res.serie.reservas.all():
+            evento = r.eventos.get()
+            self.assertEqual(evento.tipo, Tipo.CREADA)
+            self.assertIn(f"Serie {res.serie.pk}", evento.detalle)
+
+    def test_reserva_directa_de_admin_acepta_todas_sin_correo(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            res = crear_serie(self.plantilla(), self.mantenimiento, hasta=S3, aceptar=True)
+        self.assertEqual(
+            set(res.serie.reservas.values_list("estado", flat=True)), {Estado.ACEPTADA}
+        )
+        self.assertEqual(len(mail.outbox), 0)
+        for r in res.serie.reservas.all():
+            self.assertEqual(r.gestionada_por, self.mantenimiento)
+            self.assertEqual([e.tipo for e in r.eventos.all()], [Tipo.CREADA, Tipo.ACEPTADA])
+
+    def test_omite_las_fechas_ocupadas_y_crea_las_demas(self):
+        self.crear(dia=S2, ini="11:00", fin="12:00", estado=Estado.ACEPTADA)  # solapa 10:00-12:20
+        res = crear_serie(self.plantilla(), self.profesor, hasta=S4)
+        self.assertEqual(res.omitidas, [S2])
+        self.assertEqual([r.fecha for r in res.creadas], [S1, S3, S4])
+
+    def test_tambien_omite_al_reservar_directamente(self):
+        self.crear(dia=S3, estado=Estado.ACEPTADA)
+        res = crear_serie(self.plantilla(), self.mantenimiento, hasta=S4, aceptar=True)
+        self.assertEqual(res.omitidas, [S3])
+        self.assertEqual(len(res.creadas), 3)
+
+    def test_si_todo_esta_ocupado_no_se_guarda_nada(self):
+        for dia in (S1, S2):
+            self.crear(dia=dia, ini="10:00", fin="13:00", estado=Estado.ACEPTADA)
+        antes = Reserva.objects.count()
+        with self.assertRaises(ConflictoReserva):
+            crear_serie(self.plantilla(), self.profesor, hasta=S2)
+        self.assertEqual((Reserva.objects.count(), SerieReserva.objects.count()), (antes, 0))
+
+    def test_rechaza_series_mas_largas_que_el_maximo(self):
+        with self.assertRaises(ValueError):
+            crear_serie(self.plantilla(), self.profesor, hasta=S1 + timedelta(days=7 * 40))
+        self.assertEqual(SerieReserva.objects.count(), 0)
+
+
+class SerieDecisionTests(BaseTest):
+    def setUp(self):
+        plantilla = Reserva(
+            aula=self.a1, fecha=S1, hora_inicio=t("10:00"), hora_fin=t("12:20"),
+            profesor="Ana López", titulo="Anatomía I", curso=self.curso,
+        )
+        self.serie = crear_serie(plantilla, self.profesor, hasta=S4).serie
+
+    def estados(self):
+        return list(self.serie.reservas.order_by("fecha").values_list("estado", flat=True))
+
+    def test_aceptar_la_serie_acepta_todas_con_auditoria_individual(self):
+        res = cambiar_estado_serie(self.serie, Estado.ACEPTADA, self.mantenimiento)
+        self.assertEqual((len(res.cambiadas), res.en_conflicto), (4, []))
+        self.assertEqual(self.estados(), [Estado.ACEPTADA] * 4)
+        for r in self.serie.reservas.all():
+            self.assertEqual((r.gestionada_por, r.eventos.last().tipo), (self.mantenimiento, Tipo.ACEPTADA))
+            self.assertIsNotNone(r.gestionada_en)
+
+    def test_acepta_las_libres_y_deja_pendientes_las_ocupadas(self):
+        # Otra reserva se acepta en el aula después de crear la serie.
+        otra = self.crear(dia=S2, ini="09:00", fin="11:00", estado=Estado.ACEPTADA)
+        res = cambiar_estado_serie(self.serie, Estado.ACEPTADA, self.mantenimiento)
+        self.assertEqual([r.fecha for r in res.en_conflicto], [S2])
+        self.assertEqual(
+            self.estados(), [Estado.ACEPTADA, Estado.PENDIENTE, Estado.ACEPTADA, Estado.ACEPTADA]
+        )
+        self.assertEqual(otra.estado, Estado.ACEPTADA)
+
+    def test_rechazar_la_serie_guarda_el_motivo_en_cada_fecha(self):
+        res = cambiar_estado_serie(self.serie, Estado.RECHAZADA, self.mantenimiento, "Aula en obras")
+        self.assertEqual(len(res.cambiadas), 4)
+        for r in self.serie.reservas.all():
+            self.assertEqual((r.estado, r.motivo_rechazo), (Estado.RECHAZADA, "Aula en obras"))
+            self.assertEqual(r.eventos.last().detalle, "Aula en obras")
+
+    def test_no_toca_las_fechas_ya_decididas(self):
+        s1, s2, *_ = self.serie.reservas.order_by("fecha")
+        cambiar_estado(s1, Estado.ACEPTADA, self.mantenimiento)
+        cambiar_estado(s2, Estado.RECHAZADA, self.informatica, "Festivo")
+        res = cambiar_estado_serie(self.serie, Estado.RECHAZADA, self.mantenimiento, "Se cancela el resto")
+        self.assertEqual(len(res.cambiadas), 2)
+        s1.refresh_from_db(), s2.refresh_from_db()
+        self.assertEqual((s1.estado, s2.estado, s2.motivo_rechazo), (Estado.ACEPTADA, Estado.RECHAZADA, "Festivo"))
+
+    def test_repetir_la_accion_no_duplica_el_historial(self):
+        cambiar_estado_serie(self.serie, Estado.ACEPTADA, self.mantenimiento)
+        eventos = EventoReserva.objects.count()
+        res = cambiar_estado_serie(self.serie, Estado.ACEPTADA, self.mantenimiento)
+        self.assertEqual((res.cambiadas, res.en_conflicto), ([], []))
+        self.assertEqual(EventoReserva.objects.count(), eventos)
+
+    def test_una_serie_solo_se_acepta_o_rechaza(self):
+        with self.assertRaises(ValueError):
+            cambiar_estado_serie(self.serie, Estado.PENDIENTE, self.mantenimiento)
+
+    def test_la_restriccion_de_la_base_de_datos_sigue_protegiendo_las_series(self):
+        cambiar_estado_serie(self.serie, Estado.ACEPTADA, self.mantenimiento)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Reserva.objects.create(
+                aula=self.a1, fecha=S3, hora_inicio=t("11:00"), hora_fin=t("12:00"),
+                profesor="X", estado=Estado.ACEPTADA, creada_por=self.profesor,
+            )
+
+
+class SerieVistasTests(BaseTest):
+    def pedir(self, usuario=None, **cambios):
+        self.client.force_login(usuario or self.profesor)
+        datos = self.datos_form(
+            **{"fecha": S1.isoformat(), "hora_fin": "12:20", "repetir_hasta": S4.isoformat(), **cambios}
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(reverse("reservar"), datos, follow=True)
+
+    def test_el_profesor_pide_una_serie(self):
+        r = self.pedir()
+        self.assertRedirects(r, reverse("reservar"))
+        self.assertEqual(Reserva.objects.count(), 4)
+        self.assertEqual(Reserva.objects.values("serie").distinct().count(), 1)
+        self.assertContains(r, "Petición enviada: 4 fechas")
+        self.assertContains(r, "10:00 a 12:20")
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_avisa_de_las_fechas_que_no_se_han_incluido(self):
+        self.crear(dia=S2, estado=Estado.ACEPTADA)
+        r = self.pedir()
+        self.assertEqual(Reserva.objects.filter(serie__isnull=False).count(), 3)
+        self.assertContains(r, "No se han incluido 1 fechas")
+        self.assertContains(r, f"{S2.day}/{S2.month}")
+
+    def test_el_admin_reserva_una_serie_directamente(self):
+        r = self.pedir(self.mantenimiento, aceptar_directamente="on")
+        self.assertContains(r, "Serie creada y aceptada: 4 fechas")
+        self.assertEqual(Reserva.objects.filter(estado=Estado.ACEPTADA).count(), 4)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_un_dato_invalido_no_crea_nada(self):
+        r = self.pedir(repetir_hasta=S1.isoformat())
+        self.assertEqual(Reserva.objects.count(), 0)
+        self.assertContains(r, "al menos una semana posterior")
+
+    def test_sin_repetir_sigue_creando_una_sola_reserva(self):
+        self.client.force_login(self.profesor)
+        self.client.post(reverse("reservar"), self.datos_form())
+        reserva = Reserva.objects.get()
+        self.assertIsNone(reserva.serie)
+
+    def test_el_formulario_muestra_el_campo(self):
+        self.client.force_login(self.profesor)
+        self.assertContains(self.client.get(reverse("reservar")), 'name="repetir_hasta"')
+
+    def test_aviso_en_vivo_de_la_serie(self):
+        self.crear(dia=S2, estado=Estado.ACEPTADA)
+        self.client.force_login(self.profesor)
+        params = {
+            "aula": self.a1.pk, "fecha": S1.isoformat(), "hora_inicio": "10:00",
+            "hora_fin": "11:00", "repetir_hasta": S4.isoformat(),
+        }
+        r = self.client.get(reverse("disponibilidad"), params)
+        self.assertContains(r, "1 de 4 fechas con el aula ocupada")
+        self.assertContains(r, "Se pedirán solo las otras 3")
+        libre = self.client.get(reverse("disponibilidad"), {**params, "aula": self.a2.pk})
+        self.assertContains(libre, "Las 4 fechas están libres")
+
+    def test_aviso_en_vivo_ignora_una_fecha_final_invalida(self):
+        self.client.force_login(self.profesor)
+        params = {
+            "aula": self.a1.pk, "fecha": S1.isoformat(), "hora_inicio": "10:00",
+            "hora_fin": "11:00", "repetir_hasta": "basura",
+        }
+        self.assertContains(self.client.get(reverse("disponibilidad"), params), "Franja libre")
+
+    # ------------------------------------------------------------------ panel y detalle
+    def serie_pendiente(self):
+        self.pedir()
+        return Reserva.objects.order_by("fecha").first()
+
+    def test_la_cola_muestra_la_serie_como_un_solo_elemento(self):
+        self.serie_pendiente()
+        self.crear(dia=S1, aula=self.a2)  # una petición suelta
+        self.client.force_login(self.mantenimiento)
+        r = self.client.get(reverse("panel_contenido"), {"semana": S1.isoformat()})
+        self.assertContains(r, "Aceptar serie", count=1)
+        self.assertContains(r, "4 fechas, del")
+        self.assertEqual(r.context["total_pendientes"], 2)
+        self.assertEqual(len(r.context["pendientes"]), 2)
+
+    def test_la_cola_avisa_de_fechas_ocupadas_de_la_serie(self):
+        self.serie_pendiente()
+        self.crear(dia=S3, estado=Estado.ACEPTADA, ini="11:00", fin="12:00", aula=self.a1)
+        self.client.force_login(self.mantenimiento)
+        r = self.client.get(reverse("panel_contenido"), {"semana": S1.isoformat()})
+        self.assertContains(r, "1 de 4 fechas ocupadas")
+        self.assertContains(r, "Aceptar serie")  # se puede aceptar: las libres entran
+
+    def test_la_cola_no_deja_aceptar_si_todas_las_fechas_estan_ocupadas(self):
+        self.serie_pendiente()
+        for dia in (S1, S2, S3, S4):
+            self.crear(dia=dia, estado=Estado.ACEPTADA, ini="10:00", fin="13:00")
+        self.client.force_login(self.mantenimiento)
+        r = self.client.get(reverse("panel_contenido"), {"semana": S1.isoformat()})
+        self.assertNotContains(r, "Aceptar serie")
+        self.assertContains(r, "Aula ya ocupada")
+
+    def test_el_detalle_del_admin_muestra_la_serie(self):
+        primera = self.serie_pendiente()
+        self.client.force_login(self.mantenimiento)
+        r = self.client.get(reverse("reserva_detalle", args=[primera.pk]), HTTP_HX_REQUEST="true")
+        self.assertContains(r, "Serie semanal (4 fechas)")
+        self.assertContains(r, "Aceptar las 4 pendientes")
+        self.assertContains(r, "Rechazar las 4 pendientes")
+        self.assertContains(r, reverse("reserva_serie_accion", args=[primera.pk]))
+
+    def test_una_reserva_suelta_no_muestra_bloque_de_serie(self):
+        suelta = self.crear()
+        self.client.force_login(self.mantenimiento)
+        r = self.client.get(reverse("reserva_detalle", args=[suelta.pk]), HTTP_HX_REQUEST="true")
+        self.assertNotContains(r, "Serie semanal")
+
+    def test_el_profesorado_no_ve_series_pendientes_ni_sus_acciones(self):
+        primera = self.serie_pendiente()
+        self.client.force_login(self.profesor)
+        r = self.client.get(reverse("panel_contenido"), {"semana": S1.isoformat()})
+        self.assertNotContains(r, "Anatomía I")
+        self.assertNotContains(r, "Aceptar serie")
+        self.assertEqual(
+            self.client.get(reverse("reserva_detalle", args=[primera.pk]), HTTP_HX_REQUEST="true").status_code, 404
+        )
+
+    # ------------------------------------------------------------------ acciones sobre la serie
+    def test_aceptar_la_serie_desde_el_panel(self):
+        primera = self.serie_pendiente()
+        self.client.force_login(self.mantenimiento)
+        r = self.client.post(
+            reverse("reserva_serie_accion", args=[primera.pk]), {"accion": "aceptar"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "4 fechas aceptadas.")
+        self.assertEqual(r["HX-Trigger"], "reservasActualizadas")
+        self.assertEqual(Reserva.objects.filter(estado=Estado.ACEPTADA).count(), 4)
+
+    def test_rechazar_la_serie_con_motivo(self):
+        primera = self.serie_pendiente()
+        self.client.force_login(self.mantenimiento)
+        r = self.client.post(
+            reverse("reserva_serie_accion", args=[primera.pk]),
+            {"accion": "rechazar", "motivo": "Obras"}, HTTP_HX_REQUEST="true",
+        )
+        self.assertContains(r, "4 fechas rechazadas. Recuerda avisar al profesor.")
+        self.assertEqual(set(Reserva.objects.values_list("motivo_rechazo", flat=True)), {"Obras"})
+
+    def test_aceptacion_parcial_informa_de_las_fechas_pendientes(self):
+        primera = self.serie_pendiente()
+        self.crear(dia=S3, estado=Estado.ACEPTADA, ini="11:00", fin="12:00")
+        self.client.force_login(self.mantenimiento)
+        r = self.client.post(
+            reverse("reserva_serie_accion", args=[primera.pk]), {"accion": "aceptar"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(r, "3 fechas aceptadas.")
+        self.assertContains(r, "1 fechas siguen pendientes")
+        self.assertContains(r, f"{S3.day}/{S3.month}")
+        self.assertEqual(Reserva.objects.filter(serie__isnull=False, estado=Estado.PENDIENTE).count(), 1)
+
+    def test_si_ninguna_se_puede_aceptar_se_marca_como_error(self):
+        primera = self.serie_pendiente()
+        for dia in (S1, S2, S3, S4):
+            self.crear(dia=dia, estado=Estado.ACEPTADA, ini="10:00", fin="13:00")
+        self.client.force_login(self.mantenimiento)
+        r = self.client.post(
+            reverse("reserva_serie_accion", args=[primera.pk]), {"accion": "aceptar"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(r, "aviso-error")
+        self.assertContains(r, "0 fechas aceptadas.")
+
+    def test_sin_htmx_redirige_y_muestra_el_mensaje(self):
+        primera = self.serie_pendiente()
+        self.client.force_login(self.mantenimiento)
+        r = self.client.post(reverse("reserva_serie_accion", args=[primera.pk]), {"accion": "aceptar"}, follow=True)
+        self.assertRedirects(r, reverse("reserva_detalle", args=[primera.pk]))
+        self.assertContains(r, "4 fechas aceptadas.")
+
+    def test_acciones_no_validas(self):
+        primera = self.serie_pendiente()
+        suelta = self.crear(dia=S1, aula=self.a2)
+        self.client.force_login(self.mantenimiento)
+        url = reverse("reserva_serie_accion", args=[primera.pk])
+        self.assertEqual(self.client.post(url, {"accion": "reabrir"}).status_code, 400)
+        self.assertEqual(self.client.post(url, {}).status_code, 400)
+        self.assertEqual(
+            self.client.post(reverse("reserva_serie_accion", args=[suelta.pk]), {"accion": "aceptar"}).status_code, 400
+        )
+        self.assertEqual(self.client.get(url).status_code, 405)
+
+    def test_el_profesorado_no_puede_decidir_una_serie(self):
+        primera = self.serie_pendiente()
+        self.client.force_login(self.profesor)
+        r = self.client.post(reverse("reserva_serie_accion", args=[primera.pk]), {"accion": "aceptar"})
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(Reserva.objects.filter(estado=Estado.ACEPTADA).count(), 0)
+
+    def test_anonimo_va_al_login(self):
+        r = self.client.post(reverse("reserva_serie_accion", args=[1]), {"accion": "aceptar"})
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("login", r["Location"])
+
+    def test_una_fecha_se_puede_decidir_aparte_de_la_serie(self):
+        primera = self.serie_pendiente()
+        self.client.force_login(self.mantenimiento)
+        self.client.post(reverse("reserva_accion", args=[primera.pk]), {"accion": "rechazar", "motivo": "Festivo"})
+        r = self.client.post(
+            reverse("reserva_serie_accion", args=[primera.pk]), {"accion": "aceptar"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(r, "3 fechas aceptadas.")
+        primera.refresh_from_db()
+        self.assertEqual(primera.estado, Estado.RECHAZADA)
+
+    def test_exportacion_incluye_la_serie(self):
+        self.serie_pendiente()
+        self.crear(dia=S1, aula=self.a2)
+        self.client.force_login(self.mantenimiento)
+        r = self.client.get(reverse("exportar"), {"formato": "reservas_csv"})
+        filas = list(csv.DictReader(StringIO(r.content.decode("utf-8-sig"))))
+        series = [f["serie"] for f in filas]
+        self.assertEqual(len([x for x in series if x]), 4)
+        self.assertEqual(len(set(x for x in series if x)), 1)
+        self.assertEqual(series.count(""), 1)
+
+    def test_el_admin_de_django_no_permite_cambiar_la_serie(self):
+        primera = self.serie_pendiente()
+        self.client.force_login(self.informatica)
+        r = self.client.get(reverse("admin:reservas_reserva_change", args=[primera.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'name="serie"')

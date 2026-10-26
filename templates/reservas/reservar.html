@@ -30,6 +30,7 @@
         {% include "reservas/_campo.html" with campo=form.hora_inicio %}
         {% include "reservas/_campo.html" with campo=form.hora_fin %}
       </div>
+      {% include "reservas/_campo.html" with campo=form.repetir_hasta %}
       <div id="disponibilidad" class="disponibilidad" aria-live="polite"></div>
     </div>
 

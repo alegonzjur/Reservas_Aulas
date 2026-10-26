@@ -40,7 +40,7 @@ class ReservaAdmin(admin.ModelAdmin):
     filter_horizontal = ("materiales",)
     date_hierarchy = "fecha"
     readonly_fields = (
-        "estado", "creada_por", "creada_en", "gestionada_por", "gestionada_en", "motivo_rechazo",
+        "estado", "serie", "creada_por", "creada_en", "gestionada_por", "gestionada_en", "motivo_rechazo",
     )
 
     def has_add_permission(self, request):

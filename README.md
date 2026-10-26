@@ -105,16 +105,25 @@ terminal, útil para probar. Los profesores no reciben ninguna notificación.
 
 ## Producción en red local
 
+El servidor lo arranca `run.py` (Waitress). Antes de atender peticiones comprueba la clave secreta,
+PostgreSQL, las migraciones y los estáticos; si algo falla, termina con código 1 y dice qué hacer.
+
 ```bash
 # .env: DJANGO_DEBUG=False, DJANGO_SECRET_KEY=<larga y aleatoria>, DJANGO_ALLOWED_HOSTS=<ip o nombre>
-pip install waitress
+python manage.py migrate
 python manage.py collectstatic --noinput
-waitress-serve --listen=0.0.0.0:8000 config.wsgi:application
+python run.py --check     # solo comprueba la instalación
+python run.py             # arranca (RESERVAS_HOST / RESERVAS_PORT / RESERVAS_THREADS, o --host --port --threads)
 ```
 
+Para que arranque con el servidor y se reinicie si se cae, se instala como **servicio de Windows con
+NSSM**: ver **[DESPLIEGUE.md](DESPLIEGUE.md)** (guía paso a paso, script `deploy/instalar_servicio.ps1`,
+copias de seguridad, actualización y problemas habituales).
+
 WhiteNoise sirve los estáticos; no hace falta nginx para el uso previsto. Con
-`DJANGO_DEBUG=False` la aplicación se niega a arrancar sin `DJANGO_SECRET_KEY`.
-Copias de seguridad: `pg_dump reservas_aulas > copia.sql` (programa una tarea periódica).
+`DJANGO_DEBUG=False` la aplicación se niega a arrancar sin `DJANGO_SECRET_KEY`. Los errores 500
+dejan su traceback en el log (consola o `logs/servicio.log` bajo NSSM); el usuario solo ve una
+página genérica.
 
 ## Decisiones de diseño
 
@@ -139,6 +148,15 @@ Copias de seguridad: `pg_dump reservas_aulas > copia.sql` (programa una tarea pe
   URL (404). Ven aula, horario, título, curso y profesor. **No** ven notas, material, quién la
   envió o gestionó, el historial ni la lista de pendientes, y las acciones (aceptar, rechazar,
   listado, exportación) siguen devolviendo 403 aunque se llame a mano a la URL.
+- **Reservas repetidas cada semana.** El formulario tiene «Repetir cada semana hasta»: con él, una
+  petición de lunes 10:00-12:20 desde el 26/10 hasta el 16/11 crea una reserva el 26/10, 2/11, 9/11
+  y 16/11 (máximo `MAX_REPETICIONES_SERIE` = 40 fechas). **Cada fecha es una reserva normal**, con su
+  estado, su historial y la restricción anti-solape de la base de datos; la `SerieReserva` solo las
+  agrupa. Las fechas que ya tienen una reserva aceptada en esa franja **no se crean** y se avisa de
+  cuáles (y en vivo, antes de enviar). A Mantenimiento le llega **un solo correo** por serie. En la
+  cola de pendientes la serie ocupa un elemento; desde su ficha se pueden **aceptar o rechazar en
+  bloque las fechas pendientes** (las que choquen se quedan pendientes y se listan), o decidir una
+  fecha suelta. Las ya decididas no se tocan al actuar sobre la serie.
 - **Horario.** `HORA_APERTURA` (08:00), `HORA_CIERRE` (21:00) y `PASO_MINUTOS` (5) están en
   `config/settings.py`. Solo lunes a viernes.
 - **Exportación.** Excel con cinco hojas (reservas, aulas, cursos, materiales, auditoría) y CSV de
@@ -152,17 +170,20 @@ Copias de seguridad: `pg_dump reservas_aulas > copia.sql` (programa una tarea pe
 
 ```
 config/            ajustes, urls, wsgi
+run.py             ejecutor del servidor (Waitress) con comprobaciones previas
+deploy/            instalar_servicio.ps1 (servicio de Windows con NSSM)
+DESPLIEGUE.md      guía de despliegue en el servidor
 reservas/
-  models.py        Aula, Reserva (+ restricciones), EventoReserva
-  services.py      crear_peticion, cambiar_estado, auditoría
+  models.py        Aula, Reserva (+ restricciones), SerieReserva, EventoReserva
+  services.py      crear_peticion, crear_serie, cambiar_estado, cambiar_estado_serie, auditoría
   calendario.py    geometría de la semana (carriles de solapes) y lista de pendientes
   forms.py         formularios y filtros
   exports.py       CSV y Excel
   emails.py        aviso a Mantenimiento
   permissions.py   roles y decoradores
   views.py, urls.py, admin.py, tests.py
-  management/commands/crear_usuarios.py
-templates/         plantillas (fragmentos HTMX con prefijo _)
+  management/commands/crear_usuarios.py, exportar_catalogo.py, importar_catalogo.py
+templates/         plantillas (fragmentos HTMX con prefijo _; 404.html y 500.html)
 static/            css, js y librerías incluidas (sin CDN: funciona sin internet)
 ```
 
@@ -172,12 +193,20 @@ static/            css, js y librerías incluidas (sin CDN: funciona sin interne
 python manage.py test
 ```
 
-137 pruebas: restricción en base de datos, servicios, formularios, calendario, permisos,
-vistas y fragmentos HTMX, calendario de solo lectura, exportaciones, comando de usuarios y admin. Necesitan un
+209 pruebas: restricción en base de datos, servicios, formularios, calendario, permisos,
+vistas y fragmentos HTMX, calendario de solo lectura, exportaciones, comando de usuarios, admin,
+ejecutor `run.py`, páginas de error, logging, importación/exportación del catálogo y series semanales. Necesitan un
 PostgreSQL accesible (el usuario debe poder crear bases de datos de prueba).
 
 ## Limitaciones conocidas
 
+- **Las series no conocen los festivos**: no hay calendario escolar. Si un lunes es festivo, Mantenimiento
+  rechaza esa fecha suelta (o la ignora). Tampoco se puede añadir ni quitar fechas a una serie ya
+  creada, ni cancelar de golpe una serie ya aceptada: las acciones en bloque solo afectan a las
+  fechas pendientes, y una aceptada se cancela fecha a fecha.
+- **El despliegue en Windows con NSSM no se ha probado** (se desarrolló en Linux). `run.py` sí está
+  probado; `instalar_servicio.ps1` y los comandos de NSSM no se han ejecutado. Ver el final de
+  `DESPLIEGUE.md`.
 - **El envío real por SMTP no se ha probado** (no había servidor de correo disponible);
   se probó con el backend de consola y con fallos simulados.
 - Los campos de fecha y hora los dibuja el navegador, así que su formato (mm/dd/aaaa,

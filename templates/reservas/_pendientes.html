@@ -6,22 +6,29 @@
       <li class="pendiente{% if p.caducada %} pendiente-caducada{% endif %}">
         <button type="button" class="pendiente-info" hx-get="{% url 'reserva_detalle' p.pk %}" hx-target="#detalle">
           <strong>{{ p.aula }}</strong>
-          <span>{{ p.fecha|date:"D d/m/Y" }}, {{ p.hora_inicio|time:"H:i" }} a {{ p.hora_fin|time:"H:i" }}</span>
+          {% if p.n_serie %}
+            <span>Cada {{ p.fecha|date:"l" }}, {{ p.hora_inicio|time:"H:i" }} a {{ p.hora_fin|time:"H:i" }}</span>
+            <span>{{ p.n_serie }} fecha{{ p.n_serie|pluralize }}, del {{ p.fecha|date:"d/m" }} al {{ p.ultima_fecha|date:"d/m/Y" }}</span>
+          {% else %}
+            <span>{{ p.fecha|date:"D d/m/Y" }}, {{ p.hora_inicio|time:"H:i" }} a {{ p.hora_fin|time:"H:i" }}</span>
+          {% endif %}
           {% if p.titulo %}<span>{{ p.titulo }}</span>{% endif %}
           <span>{{ p.profesor }}</span>
-          {% if p.conflicto or p.competidoras or p.caducada %}
+          {% if p.conflicto or p.n_ocupadas or p.competidoras or p.caducada %}
             <span class="etiquetas">
-              {% if p.conflicto %}<span class="etiqueta etiqueta-alerta">Aula ya ocupada</span>{% endif %}
+              {% if p.conflicto %}<span class="etiqueta etiqueta-alerta">Aula ya ocupada</span>
+              {% elif p.n_ocupadas %}<span class="etiqueta etiqueta-alerta">{{ p.n_ocupadas }} de {{ p.n_serie }} fechas ocupadas</span>{% endif %}
               {% if p.competidoras %}<span class="etiqueta">{{ p.competidoras }} más piden esta franja</span>{% endif %}
               {% if p.caducada %}<span class="etiqueta">Fecha pasada</span>{% endif %}
             </span>
           {% endif %}
         </button>
-        {% if not p.conflicto and not p.caducada %}
-          <form method="post" action="{% url 'reserva_accion' p.pk %}" hx-post="{% url 'reserva_accion' p.pk %}" hx-target="#detalle">
+        {% if not p.conflicto and p.n_serie or not p.conflicto and not p.caducada %}
+          {% if p.n_serie %}{% url 'reserva_serie_accion' p.pk as url_aceptar %}{% else %}{% url 'reserva_accion' p.pk as url_aceptar %}{% endif %}
+          <form method="post" action="{{ url_aceptar }}" hx-post="{{ url_aceptar }}" hx-target="#detalle">
             {% csrf_token %}
             <input type="hidden" name="accion" value="aceptar">
-            <button type="submit" class="boton boton-pequeno">Aceptar</button>
+            <button type="submit" class="boton boton-pequeno">{% if p.n_serie %}Aceptar serie{% else %}Aceptar{% endif %}</button>
           </form>
         {% endif %}
       </li>

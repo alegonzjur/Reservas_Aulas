@@ -22,6 +22,10 @@
   <dd>{% for m in reserva.materiales.all %}{{ m }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="tenue">Ninguno</span>{% endfor %}</dd>
   <dt>Notas</dt>
   <dd>{% if reserva.notas %}{{ reserva.notas|linebreaksbr }}{% else %}<span class="tenue">Sin notas</span>{% endif %}</dd>
+  {% if serie %}
+    <dt>Repetición</dt>
+    <dd>Cada {{ reserva.fecha|date:"l" }}, {{ serie.total }} fechas, del {{ serie.fechas.0.fecha|date:"d/m/Y" }} al {% with u=serie.fechas|last %}{{ u.fecha|date:"d/m/Y" }}{% endwith %}</dd>
+  {% endif %}
   <dt>Petición</dt>
   <dd>{{ reserva.creada_en|date:"d/m/Y H:i" }}, desde el usuario {{ reserva.creada_por.first_name|default:reserva.creada_por.username }}</dd>
   {% if reserva.gestionada_por %}
@@ -73,6 +77,44 @@
     </form>
   {% endif %}
 </div>
+
+{% if serie %}
+  <section class="serie-bloque">
+    <h3>Serie semanal ({{ serie.total }} fechas)</h3>
+    <p class="nota">
+      {{ serie.aceptada }} aceptada{{ serie.aceptada|pluralize }},
+      {{ serie.pendiente }} pendiente{{ serie.pendiente|pluralize }},
+      {{ serie.rechazada }} rechazada{{ serie.rechazada|pluralize }}.
+      Pulsa una fecha para ver su ficha.
+    </p>
+    <ul class="serie-fechas">
+      {% for f in serie.fechas %}
+        <li>
+          <button type="button" class="serie-fecha estado-{{ f.estado }}{% if f.pk == reserva.pk %} serie-actual{% endif %}"
+                  hx-get="{% url 'reserva_detalle' f.pk %}" hx-target="#detalle"
+                  title="{{ f.get_estado_display }}">{{ f.fecha|date:"d/m" }}</button>
+        </li>
+      {% endfor %}
+    </ul>
+    {% if serie.pendiente %}
+      <div class="acciones">
+        <form method="post" action="{% url 'reserva_serie_accion' reserva.pk %}" hx-post="{% url 'reserva_serie_accion' reserva.pk %}" hx-target="#detalle">
+          {% csrf_token %}
+          <input type="hidden" name="accion" value="aceptar">
+          <button type="submit" class="boton">Aceptar las {{ serie.pendiente }} pendientes</button>
+        </form>
+        <form class="form-rechazo" method="post" action="{% url 'reserva_serie_accion' reserva.pk %}" hx-post="{% url 'reserva_serie_accion' reserva.pk %}" hx-target="#detalle">
+          {% csrf_token %}
+          <input type="hidden" name="accion" value="rechazar">
+          <label for="motivo-serie-{{ reserva.pk }}">Motivo (opcional)</label>
+          <input type="text" name="motivo" id="motivo-serie-{{ reserva.pk }}" maxlength="250" autocomplete="off">
+          <button type="submit" class="boton boton-peligro">Rechazar las {{ serie.pendiente }} pendientes</button>
+        </form>
+      </div>
+      <p class="nota">Las fechas ya aceptadas o rechazadas no cambian. Si alguna fecha tiene el aula ocupada, se queda pendiente para decidirla aparte.</p>
+    {% endif %}
+  </section>
+{% endif %}
 
 <section class="historial-bloque">
   <h3>Historial</h3>

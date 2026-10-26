@@ -1,10 +1,14 @@
+from datetime import timedelta
+
 from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.formats import date_format
 
 from .models import Aula, Curso, Material, Reserva
+from .services import fechas_de_serie
 
 
 def _franja_valida(inicio, fin) -> bool:
@@ -22,8 +26,26 @@ def _texto_conflictos(conflictos) -> str:
     return f"Esa aula ya tiene una reserva aceptada ({franjas}) que se solapa con la franja pedida."
 
 
+def _texto_fechas(fechas) -> str:
+    return ", ".join(date_format(f, "j/n") for f in fechas)
+
+
 class PeticionForm(forms.ModelForm):
-    """Formulario de petición de reserva (profesorado) o de reserva directa (administradores)."""
+    """Formulario de petición de reserva (profesorado) o de reserva directa (administradores).
+
+    Tras validar, `fechas_serie` es None (reserva de un solo día) o la lista de fechas de la
+    serie semanal, y `fechas_ocupadas` las de esa lista que ya tienen una reserva aceptada.
+    """
+
+    repetir_hasta = forms.DateField(
+        required=False,
+        label="Repetir cada semana hasta",
+        help_text=(
+            "Opcional. Repite la reserva el mismo día de la semana y a la misma hora, desde el día "
+            "elegido hasta esta fecha (incluida). Las fechas con el aula ya ocupada se omiten."
+        ),
+        widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+    )
 
     aceptar_directamente = forms.BooleanField(
         required=False,
@@ -96,6 +118,9 @@ class PeticionForm(forms.ModelForm):
                 }
             )
         self.fields["fecha"].widget.attrs["min"] = timezone.localdate().isoformat()
+        self.fields["repetir_hasta"].widget.attrs["min"] = timezone.localdate().isoformat()
+        self.fechas_serie = None
+        self.fechas_ocupadas = []
 
         if not es_admin:
             del self.fields["aceptar_directamente"]
@@ -120,12 +145,39 @@ class PeticionForm(forms.ModelForm):
             if valor and (valor.minute % settings.PASO_MINUTOS or valor.second):
                 self.add_error(campo, f"Usa horas en múltiplos de {settings.PASO_MINUTOS} minutos.")
 
+        hasta = datos.get("repetir_hasta")
+        if hasta and fecha and not self.errors:
+            maximo = settings.MAX_REPETICIONES_SERIE
+            if hasta < fecha + timedelta(days=7):
+                self.add_error(
+                    "repetir_hasta",
+                    "Debe ser al menos una semana posterior al primer día "
+                    "(si solo necesitas un día, déjalo vacío).",
+                )
+            elif len(fechas_de_serie(fecha, hasta)) > maximo:
+                self.add_error(
+                    "repetir_hasta", f"Una serie puede tener como máximo {maximo} fechas."
+                )
+            else:
+                self.fechas_serie = fechas_de_serie(fecha, hasta)
+
         # Bloquea la petición si la franja ya está ocupada por una reserva aceptada.
         # (Varias peticiones PENDIENTES para la misma franja sí están permitidas.)
         if aula and fecha and _franja_valida(inicio, fin) and not self.errors:
-            conflictos = list(Reserva.aceptadas_solapadas(aula, fecha, inicio, fin))
-            if conflictos:
-                raise ValidationError(_texto_conflictos(conflictos))
+            if self.fechas_serie is None:
+                conflictos = list(Reserva.aceptadas_solapadas(aula, fecha, inicio, fin))
+                if conflictos:
+                    raise ValidationError(_texto_conflictos(conflictos))
+            else:
+                self.fechas_ocupadas = [
+                    f for f in self.fechas_serie
+                    if Reserva.aceptadas_solapadas(aula, f, inicio, fin).exists()
+                ]
+                if len(self.fechas_ocupadas) == len(self.fechas_serie):
+                    raise ValidationError(
+                        "El aula ya tiene una reserva aceptada en esa franja en todas las fechas "
+                        f"pedidas ({_texto_fechas(self.fechas_ocupadas)}). Elige otra hora u otra aula."
+                    )
         return datos
 
 

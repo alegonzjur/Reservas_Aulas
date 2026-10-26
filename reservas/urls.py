@@ -13,5 +13,6 @@ urlpatterns = [
     path("panel/reservas/", views.listado, name="listado"),
     path("panel/reservas/<int:pk>/", views.reserva_detalle, name="reserva_detalle"),
     path("panel/reservas/<int:pk>/accion/", views.reserva_accion, name="reserva_accion"),
+    path("panel/reservas/<int:pk>/serie/", views.reserva_serie_accion, name="reserva_serie_accion"),
     path("panel/exportar/", views.exportar, name="exportar"),
 ]

@@ -322,3 +322,14 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* Series semanales */
+.serie-bloque { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--borde-campo); }
+.serie-fechas { list-style: none; margin: .5rem 0 1rem; padding: 0; display: flex; flex-wrap: wrap; gap: .35rem; }
+.serie-fecha {
+  font: inherit; font-size: .85rem; padding: .2rem .5rem; border-radius: var(--radio);
+  border: 1px solid var(--borde-campo); background: #fff; cursor: pointer;
+}
+.serie-fecha.estado-aceptada { border-color: var(--aceptada); background: var(--aceptada-fondo); }
+.serie-fecha.estado-rechazada { border-color: var(--rechazada); background: var(--rechazada-fondo); text-decoration: line-through; }
+.serie-fecha.serie-actual { outline: 2px solid currentColor; outline-offset: 1px; font-weight: 700; }
