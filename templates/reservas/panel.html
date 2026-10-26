@@ -11,11 +11,13 @@
   <div class="panel-lateral">
     {# El detalle va arriba: al pulsar una reserva o "Aceptar" el resultado se ve sin desplazarse. #}
     <aside id="detalle" class="tarjeta detalle" aria-live="polite" aria-label="Detalle de la reserva">
-      <p class="vacio">Pulsa una reserva para ver su detalle y gestionarla.</p>
+      <p class="vacio">Pulsa una reserva para ver su detalle{% if es_admin %} y gestionarla{% endif %}.</p>
     </aside>
-    <section id="pendientes" class="tarjeta pendientes" aria-label="Peticiones pendientes">
-      {% include "reservas/_pendientes.html" %}
-    </section>
+    {% if es_admin %}
+      <section id="pendientes" class="tarjeta pendientes" aria-label="Peticiones pendientes">
+        {% include "reservas/_pendientes.html" %}
+      </section>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

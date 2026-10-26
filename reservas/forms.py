@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import Aula, Reserva
+from .models import Aula, Curso, Material, Reserva
 
 
 def _franja_valida(inicio, fin) -> bool:
@@ -34,24 +34,35 @@ class PeticionForm(forms.ModelForm):
 
     class Meta:
         model = Reserva
-        fields = ["aula", "fecha", "hora_inicio", "hora_fin", "profesor", "notas"]
+        fields = [
+            "aula", "fecha", "hora_inicio", "hora_fin", "titulo", "curso", "profesor",
+            "materiales", "notas",
+        ]
         labels = {
             "aula": "Aula",
             "fecha": "Día",
             "hora_inicio": "Hora de inicio",
             "hora_fin": "Hora de fin",
+            "titulo": "Título",
+            "curso": "Curso",
             "profesor": "Profesor/a",
+            "materiales": "Material",
             "notas": "Notas",
         }
         help_texts = {
+            "titulo": "Asignatura, taller, evento… lo que se hará en el aula.",
+            "curso": "Grupo que ocupará el aula. Si no ves el tuyo, avisa a mantenimiento.",
             "profesor": "Nombre de quien dará la clase. Puede ser distinto del tuyo.",
-            "notas": "Opcional: material necesario, disposición de mesas, etc.",
+            "materiales": "Marca lo que necesitas tener preparado en el aula.",
+            "notas": "Opcional: disposición de mesas, detalles del material, etc.",
         }
         widgets = {
             "fecha": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "hora_inicio": forms.TimeInput(attrs={"type": "time"}, format="%H:%M"),
             "hora_fin": forms.TimeInput(attrs={"type": "time"}, format="%H:%M"),
+            "titulo": forms.TextInput(attrs={"autocomplete": "off", "placeholder": "Por ejemplo: Anatomía I"}),
             "profesor": forms.TextInput(attrs={"autocomplete": "off", "placeholder": "Nombre y apellidos"}),
+            "materiales": forms.CheckboxSelectMultiple,
             "notas": forms.Textarea(attrs={"rows": 3}),
         }
 
@@ -61,6 +72,19 @@ class PeticionForm(forms.ModelForm):
         aula.queryset = Aula.objects.filter(activa=True)
         aula.empty_label = "Escribe para buscar un aula…"
         aula.widget.attrs["data-buscable"] = "true"
+        aula.widget.attrs["data-placeholder"] = "Escribe para buscar un aula…"
+        aula.widget.attrs["data-sin-resultados"] = "Ningún aula coincide con lo escrito"
+
+        # En el modelo estos campos admiten vacío (reservas antiguas); en el formulario no.
+        self.fields["titulo"].required = True
+        curso = self.fields["curso"]
+        curso.required = True
+        curso.queryset = Curso.objects.filter(activo=True)
+        curso.empty_label = "Escribe para buscar un curso…"
+        curso.widget.attrs["data-buscable"] = "true"
+        curso.widget.attrs["data-placeholder"] = "Escribe para buscar un curso…"
+        curso.widget.attrs["data-sin-resultados"] = "Ningún curso coincide con lo escrito"
+        self.fields["materiales"].queryset = Material.objects.filter(activo=True)
 
         paso = settings.PASO_MINUTOS * 60
         for campo in ("hora_inicio", "hora_fin"):
@@ -129,7 +153,7 @@ class FiltroReservasForm(forms.Form):
     aula = forms.ModelChoiceField(Aula.objects.all(), required=False, empty_label="Todas")
     desde = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"))
     hasta = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"))
-    q = forms.CharField(required=False, label="Profesor o notas")
+    q = forms.CharField(required=False, label="Profesor, título o notas")
 
     def clean(self):
         datos = super().clean()
@@ -149,7 +173,9 @@ class FiltroReservasForm(forms.Form):
         if d.get("hasta"):
             queryset = queryset.filter(fecha__lte=d["hasta"])
         if d.get("q"):
-            queryset = queryset.filter(Q(profesor__icontains=d["q"]) | Q(notas__icontains=d["q"]))
+            queryset = queryset.filter(
+                Q(profesor__icontains=d["q"]) | Q(titulo__icontains=d["q"]) | Q(notas__icontains=d["q"])
+            )
         return queryset
 
 

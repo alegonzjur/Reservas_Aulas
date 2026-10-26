@@ -17,13 +17,20 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .models import Aula, EventoReserva, Reserva
+from .models import Aula, Curso, EventoReserva, Material, Reserva
 
 CABECERA_RESERVAS = [
-    "id", "aula", "fecha", "hora_inicio", "hora_fin", "profesor", "notas", "estado",
+    "id", "aula", "fecha", "hora_inicio", "hora_fin", "titulo", "curso", "profesor",
+    "materiales", "notas", "estado",
     "creada_en", "creada_por", "gestionada_en", "gestionada_por", "motivo_rechazo",
 ]
 CABECERA_AULAS = ["id", "nombre", "ubicacion", "capacidad", "activa"]
+CABECERA_CURSOS = ["id", "nombre", "activo"]
+CABECERA_MATERIALES = ["id", "nombre", "activo", "orden"]
+
+# Separador de la columna "materiales" (una reserva puede pedir varios). No es ni la coma
+# ni el punto y coma, para no confundirse con el delimitador del CSV.
+SEPARADOR_MATERIALES = " | "
 CABECERA_AUDITORIA = ["id_evento", "id_reserva", "fecha", "tipo", "usuario", "detalle"]
 
 _INICIOS_PELIGROSOS = ("=", "+", "-", "@", "\t", "\r")
@@ -37,10 +44,17 @@ def _local_naive(dt: datetime | None) -> datetime | None:
 
 
 def filas_reservas(queryset):
-    qs = queryset.select_related("aula", "creada_por", "gestionada_por").order_by("fecha", "hora_inicio", "id")
+    qs = (
+        queryset.select_related("aula", "curso", "creada_por", "gestionada_por")
+        .prefetch_related("materiales")
+        .order_by("fecha", "hora_inicio", "id")
+    )
     for r in qs:
         yield [
-            r.pk, r.aula.nombre, r.fecha, r.hora_inicio, r.hora_fin, r.profesor, r.notas, r.estado,
+            r.pk, r.aula.nombre, r.fecha, r.hora_inicio, r.hora_fin, r.titulo,
+            r.curso.nombre if r.curso else None, r.profesor,
+            SEPARADOR_MATERIALES.join(m.nombre for m in r.materiales.all()),
+            r.notas, r.estado,
             _local_naive(r.creada_en), r.creada_por.get_username(),
             _local_naive(r.gestionada_en),
             r.gestionada_por.get_username() if r.gestionada_por else None,
@@ -51,6 +65,16 @@ def filas_reservas(queryset):
 def filas_aulas():
     for a in Aula.objects.order_by("nombre"):
         yield [a.pk, a.nombre, a.ubicacion, a.capacidad, a.activa]
+
+
+def filas_cursos():
+    for c in Curso.objects.order_by("nombre"):
+        yield [c.pk, c.nombre, c.activo]
+
+
+def filas_materiales():
+    for m in Material.objects.order_by("orden", "nombre"):
+        yield [m.pk, m.nombre, m.activo, m.orden]
 
 
 def filas_auditoria(queryset_reservas):
@@ -163,6 +187,8 @@ def exportar_excel_completo(queryset_reservas) -> HttpResponse:
         [
             ("Reservas", CABECERA_RESERVAS, filas_reservas(queryset_reservas)),
             ("Aulas", CABECERA_AULAS, filas_aulas()),
+            ("Cursos", CABECERA_CURSOS, filas_cursos()),
+            ("Materiales", CABECERA_MATERIALES, filas_materiales()),
             ("Auditoría", CABECERA_AUDITORIA, filas_auditoria(queryset_reservas)),
         ],
     )

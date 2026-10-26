@@ -33,7 +33,10 @@
       <div id="disponibilidad" class="disponibilidad" aria-live="polite"></div>
     </div>
 
+    {% include "reservas/_campo.html" with campo=form.titulo %}
+    {% include "reservas/_campo.html" with campo=form.curso %}
     {% include "reservas/_campo.html" with campo=form.profesor %}
+    {% include "reservas/_campo_multiple.html" with campo=form.materiales %}
     {% include "reservas/_campo.html" with campo=form.notas %}
     {% if es_admin %}{% include "reservas/_campo.html" with campo=form.aceptar_directamente %}{% endif %}
 

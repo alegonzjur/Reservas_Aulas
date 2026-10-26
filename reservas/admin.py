@@ -6,7 +6,7 @@ aplicación, para que nunca se salte la auditoría.
 """
 from django.contrib import admin
 
-from .models import Aula, EventoReserva, Reserva
+from .models import Aula, Curso, EventoReserva, Material, Reserva
 from .services import registrar_evento
 
 
@@ -17,11 +17,27 @@ class AulaAdmin(admin.ModelAdmin):
     search_fields = ("nombre", "ubicacion")
 
 
+@admin.register(Curso)
+class CursoAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "activo")
+    list_filter = ("activo",)
+    search_fields = ("nombre",)
+
+
+@admin.register(Material)
+class MaterialAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "orden", "activo")
+    list_editable = ("orden",)
+    list_filter = ("activo",)
+    search_fields = ("nombre",)
+
+
 @admin.register(Reserva)
 class ReservaAdmin(admin.ModelAdmin):
-    list_display = ("__str__", "profesor", "estado", "gestionada_por", "gestionada_en")
-    list_filter = ("estado", "aula")
-    search_fields = ("profesor", "notas")
+    list_display = ("__str__", "titulo", "curso", "profesor", "estado", "gestionada_por", "gestionada_en")
+    list_filter = ("estado", "aula", "curso")
+    search_fields = ("profesor", "titulo", "notas")
+    filter_horizontal = ("materiales",)
     date_hierarchy = "fecha"
     readonly_fields = (
         "estado", "creada_por", "creada_en", "gestionada_por", "gestionada_en", "motivo_rechazo",

@@ -24,6 +24,11 @@
           <a href="{% url 'exportar' %}"{% if actual == 'exportar' %} aria-current="page"{% endif %}>Exportar datos</a>
           {% endwith %}
           {% if user.is_staff %}<a href="{% url 'admin:index' %}">Aulas y ajustes</a>{% endif %}
+        {% elif puede_pedir %}
+          {% with actual=request.resolver_match.url_name %}
+          <a href="{% url 'reservar' %}"{% if actual == 'reservar' %} aria-current="page"{% endif %}>Pedir un aula</a>
+          <a href="{% url 'panel' %}"{% if actual == 'panel' %} aria-current="page"{% endif %}>Calendario</a>
+          {% endwith %}
         {% endif %}
       </nav>
       <form class="sesion" method="post" action="{% url 'logout' %}">

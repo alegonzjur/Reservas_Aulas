@@ -26,6 +26,42 @@ class Aula(models.Model):
         return self.nombre
 
 
+class Curso(models.Model):
+    """Grupo que ocupará el aula (1ºA, Grupo 2, 3ºB…). Catálogo gestionado desde /admin/."""
+
+    nombre = models.CharField(max_length=60, unique=True)
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para dejar de ofrecerlo en el formulario sin perder el historial.",
+    )
+
+    class Meta:
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class Material(models.Model):
+    """Material que el profesorado puede pedir con la reserva (maniquíes, etc.)."""
+
+    nombre = models.CharField(max_length=100, unique=True)
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para dejar de ofrecerlo en el formulario sin perder el historial.",
+    )
+    orden = models.PositiveSmallIntegerField(
+        default=0, help_text="Posición en el formulario (de menor a mayor)."
+    )
+
+    class Meta:
+        ordering = ["orden", "nombre"]
+        verbose_name_plural = "materiales"
+
+    def __str__(self):
+        return self.nombre
+
+
 class Reserva(models.Model):
     """Una petición de reserva. Solo ocupa el aula cuando está ACEPTADA."""
 
@@ -40,6 +76,14 @@ class Reserva(models.Model):
     hora_fin = models.TimeField()
     # Texto libre: la reserva puede hacerse a nombre de otra persona.
     profesor = models.CharField("profesor/a", max_length=150)
+    # Asignatura, evento, etc. Obligatorio en el formulario; en el modelo admite vacío
+    # porque las reservas anteriores a este campo no lo tienen (y deben poder editarse).
+    titulo = models.CharField("título", max_length=120, blank=True, default="")
+    # Grupo que ocupa el aula. Igual que `titulo`: obligatorio en el formulario.
+    curso = models.ForeignKey(
+        Curso, on_delete=models.PROTECT, null=True, blank=True, related_name="reservas"
+    )
+    materiales = models.ManyToManyField(Material, blank=True, related_name="reservas")
     notas = models.TextField(blank=True)
     estado = models.CharField(
         max_length=10, choices=Estado.choices, default=Estado.PENDIENTE, db_index=True

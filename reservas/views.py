@@ -43,7 +43,12 @@ def reservar(request):
         if form.is_valid():
             aceptar = admin and form.cleaned_data.get("aceptar_directamente", False)
             try:
-                reserva = crear_peticion(form.instance, request.user, aceptar=aceptar)
+                reserva = crear_peticion(
+                    form.instance,
+                    request.user,
+                    aceptar=aceptar,
+                    materiales=form.cleaned_data["materiales"],
+                )
             except ConflictoReserva:
                 form.add_error(
                     None,
@@ -93,11 +98,16 @@ def _parametros_panel(request):
 
 def _contexto_panel(request):
     lunes, aula_id = _parametros_panel(request)
-    pendientes, total_pendientes = pendientes_para_revisar()
+    # La cola de pendientes es trabajo de los administradores: el profesorado ve el
+    # calendario (para saber si hay reservas) pero no esa lista.
+    if es_admin(request.user):
+        pendientes, total_pendientes = pendientes_para_revisar()
+    else:
+        pendientes, total_pendientes = [], 0
     params = {"semana": lunes.isoformat()}
     if aula_id:
         params["aula"] = aula_id
-    contexto = construir_semana(lunes, aula_id)
+    contexto = construir_semana(lunes, aula_id, solo_aceptadas=not es_admin(request.user))
     contexto.update(
         aulas=Aula.objects.all(),
         aula_id=aula_id,
@@ -108,20 +118,23 @@ def _contexto_panel(request):
     return contexto
 
 
-@solo_admin
+# El calendario lo ve cualquier usuario con rol; solo los administradores ven además la
+# lista de pendientes y pueden actuar (las acciones siguen siendo solo_admin).
+@solo_con_rol
 @require_GET
 def panel(request):
     return render(request, "reservas/panel.html", _contexto_panel(request))
 
 
-@solo_admin
+@solo_con_rol
 @require_GET
 def panel_contenido(request):
     """Fragmento HTMX con calendario + pendientes (navegación entre semanas y refresco)."""
     contexto = _contexto_panel(request)
     # oob: además del calendario, devuelve la lista de pendientes para que HTMX la
     # sustituya "fuera de banda" en su propia columna (ver _panel_contenido.html).
-    contexto["oob"] = True
+    # El profesorado no tiene esa columna.
+    contexto["oob"] = es_admin(request.user)
     respuesta = render(request, "reservas/_panel_contenido.html", contexto)
     # Para que "atrás" y recargar funcionen, la URL visible apunta a la página completa.
     # Los refrescos automáticos (tras aceptar/rechazar) no añaden entradas al historial.
@@ -149,13 +162,32 @@ def _contexto_detalle(reserva, aviso=None):
 
 def _reserva_completa(pk):
     return get_object_or_404(
-        Reserva.objects.select_related("aula", "creada_por", "gestionada_por"), pk=pk
+        Reserva.objects.select_related("aula", "curso", "creada_por", "gestionada_por")
+        .prefetch_related("materiales"),
+        pk=pk,
     )
 
 
-@solo_admin
+def _detalle_lectura(request, pk):
+    """Ficha de solo lectura para el profesorado: sin notas, material, auditoría ni acciones.
+
+    Solo las reservas aceptadas, que son las que ve en el calendario: las pendientes y las
+    rechazadas no existen para quien no administra (tampoco por su URL: 404).
+    """
+    if not _es_htmx(request):
+        return redirect("panel")  # la ficha completa (con historial) es solo para administradores
+    reserva = get_object_or_404(
+        Reserva.objects.select_related("aula", "curso").filter(estado=Estado.ACEPTADA),
+        pk=pk,
+    )
+    return render(request, "reservas/_detalle_lectura.html", {"reserva": reserva})
+
+
+@solo_con_rol
 @require_GET
 def reserva_detalle(request, pk):
+    if not es_admin(request.user):
+        return _detalle_lectura(request, pk)
     contexto = _contexto_detalle(_reserva_completa(pk))
     plantilla = "reservas/_detalle.html" if _es_htmx(request) else "reservas/detalle_pagina.html"
     return render(request, plantilla, contexto)
@@ -211,7 +243,7 @@ def reserva_accion(request, pk):
 @require_GET
 def listado(request):
     form = FiltroReservasForm(request.GET or None)
-    reservas = Reserva.objects.select_related("aula", "gestionada_por")
+    reservas = Reserva.objects.select_related("aula", "curso", "gestionada_por")
     if form.is_bound and form.is_valid():
         reservas = form.filtrar(reservas)
     reservas = reservas.order_by("-fecha", "-hora_inicio", "-id")

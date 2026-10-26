@@ -12,10 +12,15 @@
         maxOptions: 500,
         closeAfterSelect: true,
         // Sin allowEmptyOption: la opción vacía del <select> no debe listarse como si fuera un aula.
-        placeholder: "Escribe para buscar un aula…",
+        // Los textos vienen del propio <select> (data-placeholder, data-sin-resultados).
+        placeholder: el.dataset.placeholder || "Escribe para buscar…",
         render: {
           no_results: function () {
-            return '<div class="no-results">Ningún aula coincide con lo escrito</div>';
+            var texto = el.dataset.sinResultados || "Nada coincide con lo escrito";
+            var div = document.createElement("div");
+            div.className = "no-results";
+            div.textContent = texto;
+            return div;
           },
         },
       });
@@ -40,7 +45,7 @@
     iniciarBuscadores(evento.target);
 
     // En pantallas estrechas el detalle queda debajo del calendario: lo acercamos.
-    if (evento.target.id === "detalle" && window.matchMedia("(max-width: 1000px)").matches) {
+    if (evento.target.id === "detalle" && window.matchMedia("(max-width: 1280px)").matches) {
       var reducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       evento.target.scrollIntoView({ behavior: reducido ? "auto" : "smooth", block: "nearest" });
     }

@@ -23,7 +23,8 @@ def notificar_peticion_pendiente(reserva_id: int) -> bool:
         return False
 
     try:
-        reserva = Reserva.objects.select_related("aula").get(pk=reserva_id)
+        reserva = Reserva.objects.select_related("aula", "curso").get(pk=reserva_id)
+        materiales = ", ".join(m.nombre for m in reserva.materiales.all()) or "—"
         fecha = date_format(reserva.fecha, "l d/m/Y")
         horario = f"{reserva.hora_inicio:%H:%M} - {reserva.hora_fin:%H:%M}"
         # El asunto solo lleva datos controlados por administradores (aula) y fecha/hora.
@@ -34,7 +35,10 @@ def notificar_peticion_pendiente(reserva_id: int) -> bool:
             f"Aula:      {reserva.aula}\n"
             f"Día:       {fecha}\n"
             f"Horario:   {horario}\n"
+            f"Título:    {reserva.titulo or '—'}\n"
+            f"Curso:     {reserva.curso or '—'}\n"
             f"Profesor:  {reserva.profesor}\n"
+            f"Material:  {materiales}\n"
             f"Notas:     {reserva.notas or '—'}\n\n"
             f"Revisar y responder: {settings.SITE_URL}{reverse('panel')}\n"
         )

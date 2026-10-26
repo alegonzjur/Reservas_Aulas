@@ -27,7 +27,7 @@ from .calendario import (
     pendientes_para_revisar, repartir_en_carriles, texto_rango,
 )
 from .forms import PeticionForm
-from .models import Aula, EventoReserva, Reserva
+from .models import Aula, Curso, EventoReserva, Material, Reserva
 from .permissions import GRUPO_ADMIN, GRUPO_PROFESORADO
 from .services import ConflictoReserva, cambiar_estado, crear_peticion
 
@@ -63,6 +63,11 @@ class BaseTest(TestCase):
         cls.sin_rol = User.objects.create_user("sinrol", password=CLAVE)
         cls.a1 = Aula.objects.create(nombre="Aula 1")
         cls.a2 = Aula.objects.create(nombre="Aula 2")
+        cls.curso = Curso.objects.create(nombre="1ºA")
+        cls.curso2 = Curso.objects.create(nombre="Grupo 2")
+        # Los dos materiales de partida los siembra la migración 0004.
+        cls.mat_maniquies = Material.objects.get(nombre="Maniquíes")
+        cls.mat_otro = Material.objects.get(nombre="Material distinto al habitual")
 
     def crear(self, aula=None, ini="10:00", fin="11:00", estado=Estado.PENDIENTE, dia=None,
               profesor="Ana López", notas="", **extra):
@@ -77,7 +82,8 @@ class BaseTest(TestCase):
     def datos_form(self, **cambios):
         datos = {
             "aula": self.a1.pk, "fecha": LUNES.isoformat(), "hora_inicio": "10:00",
-            "hora_fin": "11:00", "profesor": "Ana López", "notas": "",
+            "hora_fin": "11:00", "titulo": "Anatomía I", "curso": self.curso.pk,
+            "profesor": "Ana López", "notas": "",
         }
         datos.update(cambios)
         return datos
@@ -357,6 +363,43 @@ class PeticionFormTests(BaseTest):
         self.assertIn("aula", f.errors)
         self.assertIn("profesor", f.errors)
 
+    def test_titulo_y_curso_son_obligatorios(self):
+        f = self.form(titulo="", curso="")
+        self.assertFalse(f.is_valid())
+        self.assertIn("titulo", f.errors)
+        self.assertIn("curso", f.errors)
+
+    def test_un_titulo_de_solo_espacios_no_vale(self):
+        f = self.form(titulo="    ")
+        self.assertFalse(f.is_valid())
+        self.assertIn("titulo", f.errors)
+
+    def test_el_titulo_se_limpia_y_tiene_maximo(self):
+        f = self.form(titulo="  Anatomía I  ")
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertEqual(f.cleaned_data["titulo"], "Anatomía I")
+        self.assertFalse(self.form(titulo="x" * 121).is_valid())
+
+    def test_un_curso_inactivo_no_se_puede_elegir(self):
+        self.curso2.activo = False
+        self.curso2.save()
+        f = self.form(curso=self.curso2.pk)
+        self.assertFalse(f.is_valid())
+        self.assertIn("curso", f.errors)
+
+    def test_el_material_es_opcional_y_admite_varios(self):
+        self.assertTrue(self.form().is_valid())
+        f = self.form(materiales=[self.mat_maniquies.pk, self.mat_otro.pk])
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertEqual(set(f.cleaned_data["materiales"]), {self.mat_maniquies, self.mat_otro})
+
+    def test_un_material_inactivo_no_se_puede_elegir(self):
+        self.mat_otro.activo = False
+        self.mat_otro.save()
+        f = self.form(materiales=[self.mat_otro.pk])
+        self.assertFalse(f.is_valid())
+        self.assertIn("materiales", f.errors)
+
     def test_la_casilla_aceptar_directamente_solo_existe_para_admins(self):
         self.assertNotIn("aceptar_directamente", self.form(es_admin=False).fields)
         self.assertIn("aceptar_directamente", self.form(es_admin=True).fields)
@@ -493,19 +536,17 @@ class PermisosTests(BaseTest):
             r = self.client.get(reverse(nombre))
             self.assertRedirects(r, f"{reverse('login')}?next={reverse(nombre)}", fetch_redirect_response=False)
 
-    def test_profesorado_no_accede_a_nada_de_administracion(self):
+    def test_profesorado_no_accede_a_la_gestion(self):
         self.client.force_login(self.profesor)
         r = self.crear()
-        for url in (
-            reverse("panel"), reverse("panel_contenido"), reverse("listado"),
-            reverse("exportar"), reverse("reserva_detalle", args=[r.pk]),
-        ):
+        for url in (reverse("listado"), reverse("exportar")):
             self.assertEqual(self.client.get(url).status_code, 403, url)
-        self.assertEqual(
-            self.client.post(reverse("reserva_accion", args=[r.pk]), {"accion": "aceptar"}).status_code, 403
-        )
+        for accion in ("aceptar", "rechazar", "reabrir"):
+            resp = self.client.post(reverse("reserva_accion", args=[r.pk]), {"accion": accion})
+            self.assertEqual(resp.status_code, 403, accion)
         r.refresh_from_db()
         self.assertEqual(r.estado, Estado.PENDIENTE)
+        self.assertEqual(r.eventos.count(), 0)
 
     def test_usuario_sin_grupo_no_puede_ni_reservar(self):
         self.client.force_login(self.sin_rol)
@@ -514,7 +555,7 @@ class PermisosTests(BaseTest):
 
     def test_la_pagina_403_es_la_de_la_aplicacion(self):
         self.client.force_login(self.profesor)
-        r = self.client.get(reverse("panel"))
+        r = self.client.get(reverse("listado"))
         self.assertContains(r, "No tienes permiso", status_code=403)
 
     def test_el_inicio_lleva_a_cada_rol_a_su_pantalla(self):
@@ -576,6 +617,56 @@ class FormularioVistaTests(BaseTest):
         self.assertContains(r, "Petición enviada")
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_la_peticion_guarda_titulo_curso_y_material_y_el_correo_los_incluye(self):
+        self.client.force_login(self.profesor)
+        datos = self.datos_form(
+            titulo="Taller de RCP", curso=self.curso2.pk,
+            materiales=[self.mat_maniquies.pk, self.mat_otro.pk],
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("reservar"), datos)
+        reserva = Reserva.objects.get()
+        self.assertEqual((reserva.titulo, reserva.curso), ("Taller de RCP", self.curso2))
+        self.assertEqual(set(reserva.materiales.all()), {self.mat_maniquies, self.mat_otro})
+        cuerpo = mail.outbox[0].body
+        self.assertIn("Título:    Taller de RCP", cuerpo)
+        self.assertIn("Curso:     Grupo 2", cuerpo)
+        self.assertIn("Maniquíes", cuerpo)
+        self.assertNotIn("Taller de RCP", mail.outbox[0].subject)  # el texto libre no va al asunto
+
+    def test_sin_material_marcado_se_guarda_vacio(self):
+        self.client.force_login(self.profesor)
+        self.client.post(reverse("reservar"), self.datos_form())
+        self.assertEqual(Reserva.objects.get().materiales.count(), 0)
+
+    def test_el_formulario_sin_titulo_o_curso_no_guarda_nada(self):
+        self.client.force_login(self.profesor)
+        for campo in ("titulo", "curso"):
+            r = self.client.post(reverse("reservar"), self.datos_form(**{campo: ""}))
+            self.assertEqual(r.status_code, 200)
+            self.assertContains(r, "obligatorio")
+        self.assertEqual(Reserva.objects.count(), 0)
+        self.assertEqual(mail.outbox, [])
+
+    def test_el_formulario_pinta_los_campos_nuevos(self):
+        self.client.force_login(self.profesor)
+        r = self.client.get(reverse("reservar"))
+        self.assertContains(r, 'name="titulo"')
+        self.assertContains(r, "1ºA")
+        self.assertContains(r, 'name="materiales"')
+        self.assertContains(r, "Maniquíes")
+        self.assertContains(r, "Material distinto al habitual")
+
+    def test_el_material_se_guarda_tambien_en_reserva_directa_de_admin(self):
+        self.client.force_login(self.mantenimiento)
+        self.client.post(
+            reverse("reservar"),
+            self.datos_form(aceptar_directamente="on", materiales=[self.mat_maniquies.pk]),
+        )
+        r = Reserva.objects.get()
+        self.assertEqual(r.estado, Estado.ACEPTADA)
+        self.assertEqual(list(r.materiales.all()), [self.mat_maniquies])
+
     def test_el_profesorado_no_puede_colarse_una_reserva_aceptada(self):
         self.client.force_login(self.profesor)
         self.client.post(reverse("reservar"), self.datos_form(aceptar_directamente="on"))
@@ -620,6 +711,125 @@ class FormularioVistaTests(BaseTest):
         self.assertEqual(self.client.get(url, incompleta).status_code, 200)
         invertida = dict(base, hora_inicio="12:00", hora_fin="11:00")
         self.assertNotContains(self.client.get(url, invertida), "Franja")
+
+
+class CalendarioProfesoradoTests(BaseTest):
+    """El profesorado ve el calendario (para saber si hay reservas) pero solo en lectura."""
+
+    HTMX = {"HTTP_HX_REQUEST": "true"}
+
+    def setUp(self):
+        self.client.force_login(self.profesor)
+        self.aceptada = self.crear(
+            estado=Estado.ACEPTADA, profesor="Aceptada Ana", titulo="Anatomía I", curso=self.curso,
+            notas="NOTA INTERNA", ini="09:00", fin="10:00",
+        )
+        self.aceptada.materiales.set([self.mat_maniquies])
+        self.pendiente = self.crear(
+            aula=self.a2, profesor="Pendiente Pau", titulo="Taller de RCP", ini="12:00", fin="13:00",
+            dia=LUNES + timedelta(days=1),
+        )
+        self.rechazada = self.crear(
+            profesor="Rechazada Rita", estado=Estado.RECHAZADA, ini="15:00", fin="16:00", titulo="Cancelada",
+        )
+
+    def panel(self, **parametros):
+        return self.client.get(reverse("panel"), {"semana": LUNES.isoformat(), **parametros})
+
+    def test_ve_solo_las_reservas_aceptadas(self):
+        r = self.panel()
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Aceptada Ana")
+        self.assertContains(r, "bloque-aceptada")
+        # Ni las pendientes ni las rechazadas existen para el profesorado.
+        for oculto in ("Pendiente Pau", "Taller de RCP", "Rechazada Rita", "bloque-pendiente", "Pendiente de revisar"):
+            self.assertNotContains(r, oculto)
+
+    def test_el_fragmento_del_calendario_tampoco_filtra_pendientes(self):
+        r = self.client.get(reverse("panel_contenido"), {"semana": LUNES.isoformat()})
+        self.assertContains(r, "Aceptada Ana")
+        for oculto in ("Pendiente Pau", "bloque-pendiente", "Pendiente de revisar"):
+            self.assertNotContains(r, oculto)
+
+    def test_el_titulo_aparece_en_los_bloques(self):
+        r = self.panel()
+        self.assertContains(r, "bloque-titulo")
+        self.assertContains(r, "Anatomía I")
+
+    def test_una_semana_con_solo_pendientes_se_ve_vacia(self):
+        semana = LUNES + timedelta(days=14)
+        self.crear(profesor="Solo Pendiente", dia=semana)
+        r = self.client.get(reverse("panel"), {"semana": semana.isoformat()})
+        self.assertContains(r, "No hay reservas esta semana")
+        self.assertNotContains(r, "Solo Pendiente")
+
+    def test_no_ve_la_lista_de_pendientes_ni_controles_de_gestion(self):
+        for r in (self.panel(), self.client.get(reverse("panel_contenido"), {"semana": LUNES.isoformat()})):
+            self.assertEqual(r.status_code, 200)
+            self.assertNotContains(r, "Pendientes de revisar")
+            self.assertNotContains(r, "hx-swap-oob")
+            self.assertNotContains(r, "/accion/")
+            self.assertNotContains(r, "reservasActualizadas")
+
+    def test_puede_navegar_entre_semanas_y_filtrar_por_aula(self):
+        r = self.client.get(reverse("panel_contenido"), {"semana": LUNES.isoformat(), "aula": self.a2.pk})
+        self.assertNotContains(r, "Aceptada Ana")  # es del aula 1
+        r = self.client.get(reverse("panel_contenido"), {"semana": LUNES.isoformat(), "aula": self.a1.pk})
+        self.assertContains(r, "Aceptada Ana")
+        siguiente = self.client.get(reverse("panel_contenido"), {"semana": (LUNES + timedelta(days=7)).isoformat()})
+        self.assertEqual(siguiente.status_code, 200)
+
+    def test_la_ficha_es_de_solo_lectura_y_no_filtra_datos_internos(self):
+        r = self.client.get(reverse("reserva_detalle", args=[self.aceptada.pk]), **self.HTMX)
+        self.assertEqual(r.status_code, 200)
+        for visible in ("Aula 1", "Anatomía I", "1ºA", "Aceptada Ana", "09:00 a 10:00"):
+            self.assertContains(r, visible)
+        for oculto in ("NOTA INTERNA", "Maniquíes", "Historial", "Aceptar", "Rechazar", "Cancelar", "<form"):
+            self.assertNotContains(r, oculto)
+
+    def test_las_pendientes_y_rechazadas_no_existen_para_el_profesorado(self):
+        for reserva in (self.pendiente, self.rechazada):
+            r = self.client.get(reverse("reserva_detalle", args=[reserva.pk]), **self.HTMX)
+            self.assertEqual(r.status_code, 404, reserva.estado)
+            self.assertNotContains(r, "Pendiente Pau", status_code=404)
+
+    def test_una_pendiente_aceptada_despues_pasa_a_verse(self):
+        cambiar_estado(self.pendiente, Estado.ACEPTADA, self.mantenimiento)
+        self.assertContains(self.panel(), "Pendiente Pau")
+        r = self.client.get(reverse("reserva_detalle", args=[self.pendiente.pk]), **self.HTMX)
+        self.assertEqual(r.status_code, 200)
+
+    def test_la_ficha_completa_sin_htmx_solo_es_para_administradores(self):
+        r = self.client.get(reverse("reserva_detalle", args=[self.aceptada.pk]))
+        self.assertRedirects(r, reverse("panel"), fetch_redirect_response=False)
+
+    def test_no_puede_gestionar_aunque_lo_intente_a_mano(self):
+        for accion in ("aceptar", "rechazar", "reabrir"):
+            r = self.client.post(reverse("reserva_accion", args=[self.pendiente.pk]), {"accion": accion}, **self.HTMX)
+            self.assertEqual(r.status_code, 403)
+        self.pendiente.refresh_from_db()
+        self.assertEqual(self.pendiente.estado, Estado.PENDIENTE)
+
+    def test_el_menu_del_profesorado_tiene_calendario_pero_no_gestion(self):
+        r = self.client.get(reverse("reservar"))
+        self.assertContains(r, f'href="{reverse("panel")}"')
+        self.assertContains(r, "Pedir un aula")
+        for oculto in ("Exportar datos", "Aulas y ajustes", f'href="{reverse("listado")}"'):
+            self.assertNotContains(r, oculto)
+
+    def test_sin_rol_sigue_sin_ver_nada(self):
+        self.client.force_login(self.sin_rol)
+        self.assertEqual(self.panel().status_code, 403)
+        self.assertEqual(self.client.get(reverse("reserva_detalle", args=[self.aceptada.pk]), **self.HTMX).status_code, 403)
+
+    def test_el_administrador_sigue_viendo_ficha_completa_y_pendientes(self):
+        self.client.force_login(self.mantenimiento)
+        r = self.panel()
+        self.assertContains(r, "Pendientes de revisar")
+        self.assertContains(r, "/accion/")
+        ficha = self.client.get(reverse("reserva_detalle", args=[self.aceptada.pk]), **self.HTMX)
+        for visible in ("NOTA INTERNA", "Maniquíes", "Historial", "Anatomía I", "1ºA"):
+            self.assertContains(ficha, visible)
 
 
 class PanelVistaTests(BaseTest):
@@ -817,7 +1027,11 @@ class ListadoVistaTests(BaseTest):
 class ExportacionTests(BaseTest):
     def setUp(self):
         self.client.force_login(self.mantenimiento)
-        self.ana = self.crear(profesor="Ana López", notas="Con ñ y tildes: á é", estado=Estado.ACEPTADA)
+        self.ana = self.crear(
+            profesor="Ana López", notas="Con ñ y tildes: á é", estado=Estado.ACEPTADA,
+            titulo="Anatomía I", curso=self.curso,
+        )
+        self.ana.materiales.set([self.mat_otro, self.mat_maniquies])
         self.berta = self.crear(profesor="Berta", aula=self.a2, ini="12:00", fin="13:30")
         crear_evento = EventoReserva.objects.create
         crear_evento(reserva=self.ana, tipo=Tipo.CREADA, usuario=self.profesor)
@@ -839,14 +1053,21 @@ class ExportacionTests(BaseTest):
         self.assertTrue(r.content.startswith(b"\xef\xbb\xbf"))  # BOM para Excel
         filas = self.filas_csv(r)
         cabecera = filas[0]
-        self.assertEqual(cabecera[:8], ["id", "aula", "fecha", "hora_inicio", "hora_fin", "profesor", "notas", "estado"])
+        self.assertEqual(
+            cabecera[:11],
+            ["id", "aula", "fecha", "hora_inicio", "hora_fin", "titulo", "curso", "profesor",
+             "materiales", "notas", "estado"],
+        )
         datos = {f[cabecera.index("profesor")]: dict(zip(cabecera, f)) for f in filas[1:]}
         ana = datos["Ana López"]
         self.assertEqual((ana["aula"], ana["fecha"], ana["hora_inicio"], ana["hora_fin"], ana["estado"]),
                          ("Aula 1", LUNES.isoformat(), "10:00", "11:00", "aceptada"))
         self.assertEqual(ana["notas"], "Con ñ y tildes: á é")
         self.assertEqual(ana["gestionada_por"], "mantenimiento")
+        self.assertEqual((ana["titulo"], ana["curso"]), ("Anatomía I", "1ºA"))
+        self.assertEqual(ana["materiales"], "Maniquíes | Material distinto al habitual")  # en el orden del catálogo
         self.assertEqual(datos["Berta"]["gestionada_por"], "")
+        self.assertEqual((datos["Berta"]["titulo"], datos["Berta"]["curso"], datos["Berta"]["materiales"]), ("", "", ""))
         self.assertRegex(ana["creada_en"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 
     def test_csv_con_punto_y_coma(self):
@@ -869,12 +1090,12 @@ class ExportacionTests(BaseTest):
             for c in f:
                 self.assertFalse(c.startswith(("=", "+", "-", "@")), c)
 
-    def test_excel_tiene_tres_hojas_con_tipos_reales(self):
+    def test_excel_tiene_las_hojas_con_tipos_reales(self):
         r = self.descargar("xlsx")
         self.assertEqual(r.status_code, 200)
         self.assertIn("spreadsheetml", r["Content-Type"])
         libro = load_workbook(BytesIO(r.content))
-        self.assertEqual(libro.sheetnames, ["Reservas", "Aulas", "Auditoría"])
+        self.assertEqual(libro.sheetnames, ["Reservas", "Aulas", "Cursos", "Materiales", "Auditoría"])
 
         hoja = libro["Reservas"]
         cabecera = [c.value for c in hoja[1]]
@@ -884,6 +1105,8 @@ class ExportacionTests(BaseTest):
         self.assertEqual(fila["hora_inicio"], time(10, 0))      # hora real
         self.assertEqual(hoja.freeze_panes, "A2")
         self.assertEqual(libro["Aulas"].max_row, 3)             # cabecera + 2 aulas
+        self.assertEqual(libro["Cursos"].max_row, 3)            # cabecera + 2 cursos
+        self.assertEqual(libro["Materiales"].max_row, 3)        # cabecera + 2 materiales de partida
         self.assertEqual(libro["Auditoría"].max_row, 4)         # cabecera + 3 eventos
 
     def test_excel_no_ejecuta_formulas(self):
@@ -960,6 +1183,8 @@ class ComandoUsuariosTests(TestCase):
         self.assertTrue(prof.check_password("profe26"))
         permisos = set(Group.objects.get(name=GRUPO_ADMIN).permissions.values_list("codename", flat=True))
         self.assertIn("add_aula", permisos)
+        self.assertIn("add_curso", permisos)
+        self.assertIn("change_material", permisos)
         self.assertIn("change_reserva", permisos)
         self.assertNotIn("delete_reserva", permisos)
         self.assertNotIn("add_reserva", permisos)

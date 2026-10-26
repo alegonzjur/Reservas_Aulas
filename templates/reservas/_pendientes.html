@@ -7,6 +7,7 @@
         <button type="button" class="pendiente-info" hx-get="{% url 'reserva_detalle' p.pk %}" hx-target="#detalle">
           <strong>{{ p.aula }}</strong>
           <span>{{ p.fecha|date:"D d/m/Y" }}, {{ p.hora_inicio|time:"H:i" }} a {{ p.hora_fin|time:"H:i" }}</span>
+          {% if p.titulo %}<span>{{ p.titulo }}</span>{% endif %}
           <span>{{ p.profesor }}</span>
           {% if p.conflicto or p.competidoras or p.caducada %}
             <span class="etiquetas">

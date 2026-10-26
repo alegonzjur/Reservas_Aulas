@@ -49,12 +49,14 @@ def _guardar(reserva, **kwargs):
 
 
 @transaction.atomic
-def crear_peticion(reserva: Reserva, usuario, aceptar: bool = False) -> Reserva:
+def crear_peticion(reserva: Reserva, usuario, aceptar: bool = False, materiales=()) -> Reserva:
     """Guarda una petición nueva.
 
     aceptar=False -> queda PENDIENTE y se avisa por correo a mantenimiento.
     aceptar=True  -> (solo administradores) queda ACEPTADA al momento; es el caso de
                      mantenimiento reservando por teléfono para quien no tiene red.
+    materiales    -> los Material pedidos. Se guardan aquí, dentro de la misma transacción
+                     y antes del correo, para que el aviso ya los incluya.
     """
     reserva.creada_por = usuario
     if aceptar:
@@ -70,6 +72,7 @@ def crear_peticion(reserva: Reserva, usuario, aceptar: bool = False) -> Reserva:
         reserva.estado = Estado.PENDIENTE
 
     _guardar(reserva)
+    reserva.materiales.set(materiales)
 
     registrar_evento(reserva, Tipo.CREADA, usuario)
     if aceptar:

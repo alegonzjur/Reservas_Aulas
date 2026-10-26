@@ -1,0 +1,17 @@
+{% comment %}
+  Grupo de casillas (selección múltiple). Uso: include con campo=form.xxx
+  Va aparte de _campo.html porque CheckboxSelectMultiple también declara input_type "checkbox"
+  y allí se pintaría como una única casilla.
+{% endcomment %}
+{% if campo.field.queryset.exists %}
+<fieldset class="campo campo-grupo{% if campo.errors %} campo-error{% endif %}">
+  <legend>{{ campo.label }}</legend>
+  <div class="opciones">
+    {% for opcion in campo %}
+      <label class="casilla" for="{{ opcion.id_for_label }}">{{ opcion.tag }} <span>{{ opcion.choice_label }}</span></label>
+    {% endfor %}
+  </div>
+  {% if campo.help_text %}<p class="ayuda">{{ campo.help_text }}</p>{% endif %}
+  {% for error in campo.errors %}<p class="error-texto">{{ error }}</p>{% endfor %}
+</fieldset>
+{% endif %}

@@ -12,8 +12,14 @@
   <dd>{{ reserva.fecha|date:"l d/m/Y" }}</dd>
   <dt>Horario</dt>
   <dd>{{ reserva.hora_inicio|time:"H:i" }} a {{ reserva.hora_fin|time:"H:i" }} ({{ reserva.duracion_texto }})</dd>
+  <dt>Título</dt>
+  <dd>{% if reserva.titulo %}{{ reserva.titulo }}{% else %}<span class="tenue">Sin título</span>{% endif %}</dd>
+  <dt>Curso</dt>
+  <dd>{% if reserva.curso %}{{ reserva.curso }}{% else %}<span class="tenue">Sin curso</span>{% endif %}</dd>
   <dt>Profesor/a</dt>
   <dd>{{ reserva.profesor }}</dd>
+  <dt>Material</dt>
+  <dd>{% for m in reserva.materiales.all %}{{ m }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="tenue">Ninguno</span>{% endfor %}</dd>
   <dt>Notas</dt>
   <dd>{% if reserva.notas %}{{ reserva.notas|linebreaksbr }}{% else %}<span class="tenue">Sin notas</span>{% endif %}</dd>
   <dt>Petición</dt>

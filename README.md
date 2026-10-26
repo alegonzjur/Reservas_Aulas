@@ -14,21 +14,38 @@ añadir React más adelante sería posible sin tirar el modelo ni la lógica de 
 |-----------------|----------------|--------------------------------------------------------------------|
 | `mantenimiento` | Administrador  | Calendario, aceptar/rechazar, reservar directamente, exportar      |
 | `informatica`   | Administrador  | Lo mismo, y además es superusuario de Django (`/admin/`)           |
-| `profesor`      | Profesorado    | Solo el formulario de petición (compartido por todo el claustro)   |
+| `profesor`      | Profesorado    | Formulario de petición y calendario **de solo lectura** (compartido por todo el claustro) |
 
 Si no hay red, el profesor llama a Mantenimiento, que crea la reserva con la casilla
 «Aceptar directamente» (solo visible para administradores).
 
 ## Puesta en marcha
 
-Requisitos: Python 3.11+, PostgreSQL 13+.
+Requisitos: Anaconda o Miniconda, PostgreSQL 13+. El proyecto se desarrolló y probó con
+Python 3.13.
+
+En **Anaconda Prompt** (Windows) o en una terminal con conda, desde la carpeta del proyecto:
 
 ```bash
-python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+conda env create -f environment.yml     # crea el entorno "reservas-aulas" e instala requirements.txt
+conda activate reservas-aulas
 
-cp .env.example .env        # edita: clave secreta, base de datos, correo
+copy .env.example .env      # Linux/Mac: cp .env.example .env
+                            # edita: clave secreta, base de datos, correo
 ```
+
+Si prefieres crear el entorno a mano (equivale a lo anterior):
+
+```bash
+conda create -n reservas-aulas python=3.13 pip
+conda activate reservas-aulas
+pip install -r requirements.txt
+```
+
+Las dependencias se instalan con `pip` y no con `conda install` a propósito: así hay una
+única lista (`requirements.txt`) y el entorno es el mismo que en producción. Para actualizar
+más adelante: `pip install -r requirements.txt --upgrade`. Para borrar el entorno:
+`conda env remove -n reservas-aulas`.
 
 Crea la base de datos (una sola vez):
 
@@ -47,11 +64,30 @@ python manage.py runserver 0.0.0.0:8000
 
 Entra en `http://<ip-del-servidor>:8000/`. Cada usuario va a su pantalla según su rol.
 
-Las **aulas** se dan de alta en `/admin/` (entra como `informatica`). Para quitar un aula
-del formulario sin perder su historial, desmarca «activa».
+Antes de que el profesorado pueda pedir nada, da de alta en `/admin/` (entra como
+`informatica` o `mantenimiento`):
+
+- **Aulas**: las que se podrán elegir.
+- **Cursos** (1ºA, Grupo 2, 3ºB…): el formulario exige elegir uno, así que **sin cursos no se
+  puede enviar ninguna petición**.
+- **Materiales**: vienen dos de partida («Maniquíes» y «Material distinto al habitual»); puedes
+  renombrarlos, reordenarlos o añadir más.
+
+Para quitar un aula, curso o material del formulario sin perder su historial, desmarca
+«activa»/«activo». No se pueden borrar si alguna reserva los usa.
 
 `crear_usuarios --restablecer` cambia contraseñas; con `--no-input` las lee de las variables
 `RESERVAS_PASSWORD_MANTENIMIENTO`, `RESERVAS_PASSWORD_INFORMATICA` y `RESERVAS_PASSWORD_PROFESOR`.
+
+### Actualizar desde una versión anterior
+
+```bash
+python manage.py migrate            # añade título, curso y material (solo añade; no toca tus datos)
+python manage.py crear_usuarios     # reaplica permisos del grupo Administrador; no cambia contraseñas
+```
+
+Las reservas ya existentes quedan con título y curso vacíos (se muestran como «Sin título» /
+«Sin curso»). Después, da de alta los cursos en `/admin/`.
 
 ### Nota sobre PostgreSQL
 
@@ -94,10 +130,21 @@ Copias de seguridad: `pg_dump reservas_aulas > copia.sql` (programa una tarea pe
   (`gestionada_por`, `gestionada_en`) para listarla rápido. Ambos salen en la exportación.
 - **Capa de servicios.** `crear_peticion` y `cambiar_estado` (en `services.py`) concentran
   las reglas dentro de una transacción con bloqueo de fila; vistas y admin las reutilizan.
+- **Título, curso y material.** Título (texto, máx. 120) y curso (lista) son obligatorios en el
+  formulario; en la base de datos admiten vacío para no invalidar las reservas anteriores y
+  poder editarlas en `/admin/`. El material son casillas múltiples cuyo catálogo se gestiona en
+  `/admin/`. Se guardan en la misma transacción que la petición, así el correo ya los incluye.
+- **Calendario para el profesorado.** Es el mismo calendario en modo lectura, pero **solo con las
+  reservas aceptadas**: las pendientes y las rechazadas no se dibujan ni se pueden consultar por su
+  URL (404). Ven aula, horario, título, curso y profesor. **No** ven notas, material, quién la
+  envió o gestionó, el historial ni la lista de pendientes, y las acciones (aceptar, rechazar,
+  listado, exportación) siguen devolviendo 403 aunque se llame a mano a la URL.
 - **Horario.** `HORA_APERTURA` (08:00), `HORA_CIERRE` (21:00) y `PASO_MINUTOS` (5) están en
   `config/settings.py`. Solo lunes a viernes.
-- **Exportación.** Excel con tres hojas (reservas, aulas, auditoría) y CSV por separado
-  (UTF-8 con BOM, fechas ISO, coma o punto y coma). Las celdas que empiezan por `=`, `+`,
+- **Exportación.** Excel con cinco hojas (reservas, aulas, cursos, materiales, auditoría) y CSV de
+  reservas, aulas y auditoría por separado (UTF-8 con BOM, fechas ISO, coma o punto y coma). En el
+  CSV de reservas, las columnas `titulo`, `curso` y `materiales` van incluidas; si hay varios
+  materiales se separan con ` | `. Las celdas que empiezan por `=`, `+`,
   `-` o `@` se neutralizan para evitar inyección de fórmulas al abrirlos en Excel.
 - **Mejora progresiva.** Los formularios funcionan sin JavaScript (HTMX añade la comodidad).
 
@@ -125,8 +172,8 @@ static/            css, js y librerías incluidas (sin CDN: funciona sin interne
 python manage.py test
 ```
 
-112 pruebas: restricción en base de datos, servicios, formularios, calendario, permisos,
-vistas y fragmentos HTMX, exportaciones, comando de usuarios y admin. Necesitan un
+137 pruebas: restricción en base de datos, servicios, formularios, calendario, permisos,
+vistas y fragmentos HTMX, calendario de solo lectura, exportaciones, comando de usuarios y admin. Necesitan un
 PostgreSQL accesible (el usuario debe poder crear bases de datos de prueba).
 
 ## Limitaciones conocidas
@@ -141,6 +188,10 @@ PostgreSQL accesible (el usuario debe poder crear bases de datos de prueba).
 - Las reservas son puntuales; las franjas fijas semanales quedan para una fase posterior.
 - Las pendientes cuya fecha ya pasó siguen listadas (marcadas «Fecha pasada») hasta que
   alguien las gestione.
+- El profesorado solo ve lo aceptado: una franja con una petición pendiente de otra persona
+  aparece libre para ellos. Pueden pedirla igualmente (se permiten varias pendientes) y el
+  administrador elige; si ya está aceptada, el formulario se lo impide.
+- La lista de cursos no se ordena de forma «natural»: «10ºA» saldría antes que «2ºA».
 - Una sola cuenta compartida de profesorado: la auditoría de peticiones registra
   «Profesor», y el nombre real es el que se escribe en el campo «Profesor/a».
 

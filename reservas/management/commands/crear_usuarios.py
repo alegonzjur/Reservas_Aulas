@@ -28,9 +28,12 @@ USUARIOS = [
     ("profesor", "Profesor", GRUPO_PROFESORADO, False, False),
 ]
 
-# Permisos del grupo Administrador sobre el panel /admin/ (aulas y correcciones).
+# Permisos del grupo Administrador sobre el panel /admin/ (catálogos y correcciones).
+# Se reaplican en cada ejecución del comando, también si los usuarios ya existen.
 PERMISOS_ADMIN = [
     "add_aula", "change_aula", "view_aula",
+    "add_curso", "change_curso", "view_curso",
+    "add_material", "change_material", "view_material",
     "view_reserva", "change_reserva",
     "view_eventoreserva",
 ]

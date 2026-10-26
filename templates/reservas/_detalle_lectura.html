@@ -1,0 +1,25 @@
+{% comment %}
+  Ficha de solo lectura (profesorado, solo reservas aceptadas). A propósito no incluye notas, material, quién la
+  envió, quién la gestionó ni el historial, y no tiene botones de acción.
+{% endcomment %}
+<header class="ficha-cabecera">
+  <h2>{{ reserva.aula }}</h2>
+  <span class="estado estado-{{ reserva.estado }}">{{ reserva.get_estado_display }}</span>
+</header>
+
+<dl class="datos">
+  <dt>Día</dt>
+  <dd>{{ reserva.fecha|date:"l d/m/Y" }}</dd>
+  <dt>Horario</dt>
+  <dd>{{ reserva.hora_inicio|time:"H:i" }} a {{ reserva.hora_fin|time:"H:i" }} ({{ reserva.duracion_texto }})</dd>
+  {% if reserva.titulo %}
+    <dt>Título</dt>
+    <dd>{{ reserva.titulo }}</dd>
+  {% endif %}
+  {% if reserva.curso %}
+    <dt>Curso</dt>
+    <dd>{{ reserva.curso }}</dd>
+  {% endif %}
+  <dt>Profesor/a</dt>
+  <dd>{{ reserva.profesor }}</dd>
+</dl>

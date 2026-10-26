@@ -119,16 +119,20 @@ def texto_rango(lunes: date, viernes: date) -> str:
     )
 
 
-def construir_semana(lunes: date, aula_id: int | None = None) -> dict:
+def construir_semana(lunes: date, aula_id: int | None = None, solo_aceptadas: bool = False) -> dict:
+    """Datos de la semana. `solo_aceptadas=True` es la vista del profesorado: las peticiones
+    pendientes (trabajo interno de los administradores) no se dibujan."""
     hoy = timezone.localdate()
     apertura = _minutos(settings.HORA_APERTURA)
     total = _minutos(settings.HORA_CIERRE) - apertura
 
     dias_fecha = [lunes + timedelta(days=i) for i in range(DIAS_VISIBLES)]
     # Solo ocupan hueco las pendientes y las aceptadas; las rechazadas no se pintan.
+    estados = [Reserva.Estado.ACEPTADA]
+    if not solo_aceptadas:
+        estados.append(Reserva.Estado.PENDIENTE)
     reservas = Reserva.objects.filter(
-        fecha__range=(dias_fecha[0], dias_fecha[-1]),
-        estado__in=[Reserva.Estado.PENDIENTE, Reserva.Estado.ACEPTADA],
+        fecha__range=(dias_fecha[0], dias_fecha[-1]), estado__in=estados
     ).select_related("aula")
     if aula_id:
         reservas = reservas.filter(aula_id=aula_id)

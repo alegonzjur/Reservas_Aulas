@@ -2,8 +2,10 @@
   Refresco: cuando una acción cambia datos, el servidor emite "reservasActualizadas" y este
   elemento (que lleva la semana y el aula actuales) recarga el calendario y los pendientes.
 {% endcomment %}
+{% if es_admin %}
 <div hidden hx-get="{% url 'panel_contenido' %}?{{ querystring }}&amp;refresco=1"
      hx-trigger="reservasActualizadas from:body" hx-target="#panel-contenido" hx-swap="innerHTML"></div>
+{% endif %}
 
 <div class="barra-semana">
   <div class="navegacion-semana" role="group" aria-label="Cambiar de semana">
@@ -36,7 +38,7 @@
 
 <ul class="leyenda" aria-label="Leyenda">
   <li><span class="muestra muestra-aceptada"></span>Aceptada</li>
-  <li><span class="muestra muestra-pendiente"></span>Pendiente de revisar</li>
+  {% if es_admin %}<li><span class="muestra muestra-pendiente"></span>Pendiente de revisar</li>{% endif %}
 </ul>
 
 <div class="semana-scroll">
@@ -61,9 +63,10 @@
           {% for b in dia.bloques %}
             <button type="button" class="bloque bloque-{{ b.reserva.estado }}" style="{{ b.estilo }}"
                     hx-get="{% url 'reserva_detalle' b.reserva.pk %}" hx-target="#detalle"
-                    title="{{ b.reserva.aula }}, {{ b.reserva.hora_inicio|time:'H:i' }} a {{ b.reserva.hora_fin|time:'H:i' }}, {{ b.reserva.profesor }} ({{ b.reserva.get_estado_display|lower }})">
+                    title="{{ b.reserva.aula }}, {{ b.reserva.hora_inicio|time:'H:i' }} a {{ b.reserva.hora_fin|time:'H:i' }}{% if b.reserva.titulo %}, {{ b.reserva.titulo }}{% endif %}, {{ b.reserva.profesor }} ({{ b.reserva.get_estado_display|lower }})">
               <span class="bloque-hora">{{ b.reserva.hora_inicio|time:"G:i" }}–{{ b.reserva.hora_fin|time:"G:i" }}</span>
               <span class="bloque-aula">{{ b.reserva.aula }}</span>
+              {% if b.reserva.titulo %}<span class="bloque-titulo">{{ b.reserva.titulo }}</span>{% endif %}
               <span class="bloque-profesor">{{ b.reserva.profesor }}</span>
             </button>
           {% endfor %}

@@ -118,6 +118,19 @@ textarea { resize: vertical; }
 .campo-error input, .campo-error select, .campo-error textarea { border-color: var(--rechazada); border-width: 2px; }
 .campo-casilla .casilla { display: flex; align-items: center; gap: .5rem; font-weight: 600; margin: 0; }
 .campo-casilla input { width: auto; }
+
+/* Grupo de casillas (selección múltiple, p. ej. Material). */
+.campo-grupo { border: 0; padding: 0; min-width: 0; }
+.campo-grupo legend { font-weight: 600; padding: 0; margin-bottom: .25rem; }
+.campo-grupo .opciones { display: flex; flex-wrap: wrap; gap: .5rem .75rem; }
+.campo-grupo .casilla {
+  display: flex; align-items: center; gap: .5rem; margin: 0; font-weight: 400;
+  padding: .45rem .75rem; background: #fff; border: 1px solid var(--borde-campo); border-radius: var(--radio);
+  cursor: pointer;
+}
+.campo-grupo .casilla:has(input:checked) { border-color: var(--tiza); background: #e3f0f6; }
+.campo-grupo .casilla:has(input:focus-visible) { outline: 3px solid var(--tiza); outline-offset: 2px; }
+.campo-grupo input { width: auto; margin: 0; }
 .fila-horario { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 0 .75rem; }
 
 /* Selector con búsqueda (Tom Select): lo alineamos con el resto de campos.
@@ -295,7 +308,7 @@ textarea { resize: vertical; }
 .formato summary { cursor: pointer; font-weight: 600; color: var(--pizarra); }
 
 /* ------------------------------------------------------------------ Pantallas estrechas */
-@media (max-width: 1000px) {
+@media (max-width: 1280px) {
   .panel { grid-template-columns: minmax(0, 1fr); }
   .panel-lateral { position: static; max-height: none; overflow: visible; }
 }
