@@ -158,10 +158,21 @@ RESERVAS_EMAIL_DESTINO = env_lista("RESERVAS_EMAIL_DESTINO")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000").rstrip("/")
 
 # --------------------------------------------------------------------------- Logs
+# Todo va a la salida de error estándar. Como servicio de Windows, NSSM la redirige a un
+# fichero con rotación (ver DESPLIEGUE.md); en desarrollo se ve en la terminal.
+#
+# El logger "django" es imprescindible en producción: con DEBUG=False, Django solo envía
+# los errores 500 por correo a ADMINS (que aquí está vacío), así que sin esto el traceback
+# de un fallo no se vería en ninguna parte. Al definirlo aquí sustituye al de Django.
+_NIVEL_LOG = os.environ.get("DJANGO_LOG_LEVEL", "INFO").strip().upper() or "INFO"
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {"simple": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
     "handlers": {"consola": {"class": "logging.StreamHandler", "formatter": "simple"}},
-    "loggers": {"reservas": {"handlers": ["consola"], "level": "INFO"}},
+    "loggers": {
+        "reservas": {"handlers": ["consola"], "level": _NIVEL_LOG},
+        "django": {"handlers": ["consola"], "level": "WARNING"},  # incluye django.request (500)
+        "waitress": {"handlers": ["consola"], "level": "INFO"},
+    },
 }
