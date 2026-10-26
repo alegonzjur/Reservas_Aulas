@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "aulas": [
+    {
+      "nombre": "Aula 1",
+      "ubicacion": "Primera Planta",
+      "capacidad": 80,
+      "activa": true
+    },
+    {
+      "nombre": "Aula 1 - 3",
+      "ubicacion": "Planta 1",
+      "capacidad": 160,
+      "activa": true
+    },
+    {
+      "nombre": "Aula 2",
+      "ubicacion": "Primera Planta",
+      "capacidad": 80,
+      "activa": true
+    },
+    {
+      "nombre": "Aula 2 - 4",
+      "ubicacion": "Planta 1",
+      "capacidad": 160,
+      "activa": true
+    },
+    {
+      "nombre": "Aula 3",
+      "ubicacion": "Primera Planta",
+      "capacidad": 80,
+      "activa": true
+    },
+    {
+      "nombre": "Aula 4",
+      "ubicacion": "Primera Planta",
+      "capacidad": 80,
+      "activa": true
+    },
+    {
+      "nombre": "Aula de Simulación Críticos",
+      "ubicacion": "Planta 1",
+      "capacidad": null,
+      "activa": true
+    },
+    {
+      "nombre": "Aula de Simulación Habitación Hospital",
+      "ubicacion": "",
+      "capacidad": null,
+      "activa": true
+    },
+    {
+      "nombre": "Aula de Simulación Quirófano",
+      "ubicacion": "Planta 1",
+      "capacidad": null,
+      "activa": true
+    },
+    {
+      "nombre": "Aula de Visualización 1",
+      "ubicacion": "Planta 1",
+      "capacidad": 20,
+      "activa": true
+    },
+    {
+      "nombre": "Aula de Visualización 2",
+      "ubicacion": "Planta 1",
+      "capacidad": 20,
+      "activa": true
+    },
+    {
+      "nombre": "Aula Documentación y Administración Sanitarias 1",
+      "ubicacion": "Planta 2",
+      "capacidad": 30,
+      "activa": true
+    },
+    {
+      "nombre": "Aula Documentación y Administración Sanitarias 2",
+      "ubicacion": "Planta 2",
+      "capacidad": 30,
+      "activa": true
+    },
+    {
+      "nombre": "Aula Imagen Para el Diagnóstico y Medicina Nuclear 1",
+      "ubicacion": "Planta 2",
+      "capacidad": 30,
+      "activa": true
+    },
+    {
+      "nombre": "Aula Imagen Para el Diagnóstico y Medicina Nuclear 2",
+      "ubicacion": "Planta 2",
+      "capacidad": 30,
+      "activa": true
+    },
+    {
+      "nombre": "Aula Técnico en Cuidados Auxiliares de Enfermería",
+      "ubicacion": "Planta 2",
+      "capacidad": 30,
+      "activa": true
+    },
+    {
+      "nombre": "Control 1,2,3",
+      "ubicacion": "Planta 1",
+      "capacidad": 1,
+      "activa": true
+    },
+    {
+      "nombre": "Habilidades 1",
+      "ubicacion": "Planta 1",
+      "capacidad": 20,
+      "activa": true
+    },
+    {
+      "nombre": "Habilidades 2",
+      "ubicacion": "Planta 1",
+      "capacidad": 25,
+      "activa": true
+    },
+    {
+      "nombre": "Laboratorio",
+      "ubicacion": "Planta 1",
+      "capacidad": 25,
+      "activa": true
+    },
+    {
+      "nombre": "Laboratorio Dental TCAE",
+      "ubicacion": "Planta 2",
+      "capacidad": null,
+      "activa": true
+    },
+    {
+      "nombre": "Laboratorio Radiología",
+      "ubicacion": "Planta 2",
+      "capacidad": null,
+      "activa": true
+    },
+    {
+      "nombre": "Sala de Claustro",
+      "ubicacion": "Planta Baja",
+      "capacidad": 35,
+      "activa": true
+    },
+    {
+      "nombre": "Sala de Juntas Dirección",
+      "ubicacion": "Planta Baja",
+      "capacidad": 10,
+      "activa": true
+    },
+    {
+      "nombre": "Sala de Juntas FP",
+      "ubicacion": "Planta 2",
+      "capacidad": 8,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 1",
+      "ubicacion": "Planta 1",
+      "capacidad": 22,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 1 - 3",
+      "ubicacion": "Planta 1",
+      "capacidad": 80,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 2",
+      "ubicacion": "Planta 1",
+      "capacidad": 22,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 3",
+      "ubicacion": "Planta 1",
+      "capacidad": 22,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 4",
+      "ubicacion": "Planta 1",
+      "capacidad": 22,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 5",
+      "ubicacion": "Planta 1",
+      "capacidad": 22,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 5-6",
+      "ubicacion": "Planta 1",
+      "capacidad": 80,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 6",
+      "ubicacion": "Planta 1",
+      "capacidad": 22,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 7",
+      "ubicacion": "Planta Baja",
+      "capacidad": 30,
+      "activa": true
+    },
+    {
+      "nombre": "Seminario 8",
+      "ubicacion": "Planta Baja",
+      "capacidad": 30,
+      "activa": true
+    },
+    {
+      "nombre": "Taller de Enfermería TCAE",
+      "ubicacion": "Planta 2",
+      "capacidad": null,
+      "activa": true
+    }
+  ],
+  "cursos": [],
+  "materiales": [
+    {
+      "nombre": "Maniquíes",
+      "activo": true,
+      "orden": 1
+    },
+    {
+      "nombre": "Material distinto al habitual",
+      "activo": true,
+      "orden": 2
+    }
+  ]
+}
